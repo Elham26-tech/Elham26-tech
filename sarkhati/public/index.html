@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>سرخطی‌زن</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <h1>سرخطی‌زن</h1>
+  <div class="clock">
+    <span id="clock-now">—</span>
+    <span class="muted" id="clock-offset"></span>
+  </div>
+</header>
+
+<main class="grid">
+  <section class="card">
+    <h2>اتصال کارگزاری</h2>
+    <label>آدرس پایهٔ API<input id="baseUrl" type="url" placeholder="https://api.broker.ir" /></label>
+    <label>مسیر ثبت سفارش<input id="orderPath" type="text" placeholder="/Order" /></label>
+    <label>توکن / نشست<input id="token" type="password" autocomplete="off" /></label>
+
+    <h2>سفارش</h2>
+    <label>نماد یا ISIN<input id="isinOrSymbol" type="text" /></label>
+    <div class="row">
+      <label>نوع
+        <select id="side">
+          <option value="buy">خرید</option>
+          <option value="sell">فروش</option>
+        </select>
+      </label>
+      <label>تعداد<input id="quantity" type="number" min="1" /></label>
+      <label>قیمت<input id="price" type="number" min="0" /></label>
+    </div>
+    <div class="row">
+      <label>حداکثر تعداد مجاز<input id="maxQuantity" type="number" placeholder="—" /></label>
+      <label>حداقل تعداد مجاز<input id="minQuantity" type="number" placeholder="—" /></label>
+      <label>گام قیمت<input id="priceStep" type="number" min="1" /></label>
+    </div>
+    <p class="muted" id="limits-note">حد‌ها اختیاری‌اند؛ اگر پر شوند تعداد داخل بازه تنظیم می‌شود.</p>
+
+    <h2>زمان‌بندی</h2>
+    <div class="row">
+      <label>ساعت هدف<input id="targetTime" type="text" placeholder="08:45:00" /></label>
+      <label>شروع چند ثانیه زودتر<input id="preArmSeconds" type="number" min="0" max="600" /></label>
+    </div>
+    <p class="muted">
+      کارگزاری‌ها گاهی تا یک دقیقه زودتر باز می‌شوند، بنابراین شلیک از
+      <b id="prearm-echo">۶۰</b> ثانیه قبلِ ساعت هدف شروع می‌شود و اولین سفارشِ پذیرفته‌شده کار را تمام می‌کند.
+    </p>
+
+    <button id="btn-arm" class="primary">مسلح کردن برای ساعت هدف</button>
+    <div class="row">
+      <button id="btn-fire">ارسال سفارش (فوری)</button>
+      <button id="btn-validate">بررسی</button>
+    </div>
+    <button id="btn-sync">همگام‌سازی ساعت</button>
+    <button id="btn-disarm" class="ghost">خلع سلاح</button>
+  </section>
+
+  <section class="card">
+    <h2>وضعیت</h2>
+    <dl class="status">
+      <div><dt>روز معاملاتی</dt><dd id="st-day">—</dd></div>
+      <div><dt>وضعیت</dt><dd id="st-state">آماده</dd></div>
+      <div><dt>شروع شلیک</dt><dd id="st-start">—</dd></div>
+      <div><dt>تلاش‌ها</dt><dd id="st-attempts">۰</dd></div>
+      <div><dt>پذیرفته‌شده</dt><dd id="st-accepted">۰</dd></div>
+      <div><dt>قالب Side یادگرفته‌شده</dt><dd id="st-learned">—</dd></div>
+    </dl>
+
+    <h2>گزارش</h2>
+    <div id="log" class="log" aria-live="polite"></div>
+
+    <details>
+      <summary>تنظیمات پیشرفته و آنچه یاد گرفته شده</summary>
+      <div class="row">
+        <label>نرخ ارسال (در ثانیه)<input id="sendRate" type="number" min="1" max="50" /></label>
+        <label>اتصال موازی<input id="parallel" type="number" min="1" max="10" /></label>
+      </div>
+      <div class="row">
+        <label>سقف مدت (ثانیه)<input id="stopAfterSeconds" type="number" min="0" /></label>
+        <label>سقف تعداد تلاش<input id="maxAttempts" type="number" min="1" /></label>
+      </div>
+      <label>قالب فیلد Side
+        <select id="sideFormat">
+          <option value="auto">خودکار (یادگیری از پاسخ کارگزاری)</option>
+          <option value="numeric">عددی — ۱ / ۲</option>
+          <option value="pascal">Buy / Sell</option>
+          <option value="lower">buy / sell</option>
+          <option value="upper">BUY / SELL</option>
+        </select>
+      </label>
+      <p class="muted">
+        خطای «Order.Side ... سفارش معتبر نمی‌باشد» یعنی کارگزاری قالب دیگری می‌خواهد؛
+        در حالت خودکار قالب‌ها به‌ترتیب امتحان و قالب درست حفظ می‌شود.
+      </p>
+      <div class="row">
+        <button id="btn-reset-session" class="ghost">پاک‌کردن حافظهٔ جلسه</button>
+        <button id="btn-reset-learned" class="ghost">فراموش‌کردن یادگرفته‌ها</button>
+      </div>
+    </details>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>

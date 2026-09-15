@@ -1,0 +1,16 @@
+{
+  "name": "sarkhati",
+  "version": "1.0.0",
+  "private": true,
+  "description": "سرخطی‌زن — ارسال سفارش دقیق در لحظهٔ بازگشایی بازار",
+  "main": "server.js",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check lib/store.js && node --check lib/order.js && node --check lib/engine.js && node --check public/app.js",
+    "test": "node test/run.js"
+  }
+}
