@@ -3,6 +3,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { Engine } = require('./lib/engine');
 
 const PORT = Number(process.env.PORT) || 9117;
@@ -110,6 +111,27 @@ const server = http.createServer((req, res) => {
   return handleApi(req, res, route).catch((err) => sendJson(res, 400, { error: err.message }));
 });
 
+/**
+ * صفحهٔ کنترل را در مرورگر پیش‌فرض باز می‌کند. در پنجرهٔ مشکی ویندوز
+ * کلیک روی لینک کار نمی‌کند (و Ctrl+C برنامه را می‌بندد)، پس خودمان بازش
+ * می‌کنیم تا کاربر کاری نکند.
+ */
+function openPanel(link) {
+  if (process.env.SARKHATI_NO_OPEN) return;
+  try {
+    const [cmd, args] = process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '', link]]
+      : process.platform === 'darwin'
+        ? ['open', [link]]
+        : ['xdg-open', [link]];
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' });
+    child.on('error', () => {});
+    child.unref();
+  } catch {
+    // اگر باز نشد، لینک در پنجره چاپ شده و کاربر دستی بازش می‌کند
+  }
+}
+
 server.listen(PORT, HOST, () => {
   const link = `http://${HOST}:${PORT}`;
   process.stdout.write('\n');
@@ -118,10 +140,12 @@ server.listen(PORT, HOST, () => {
   process.stdout.write('  ==================================================\n');
   process.stdout.write('    SARKHATI is running\n');
   process.stdout.write('  ==================================================\n\n');
+  process.stdout.write('    The control panel should open in your browser now.\n');
+  process.stdout.write('    If it does not, type this address in your browser:\n\n');
   process.stdout.write(`    ${link}\n\n`);
-  process.stdout.write('    Ctrl+Click the link above to open the control panel,\n');
-  process.stdout.write('    or copy it into your browser.\n\n');
-  process.stdout.write('    Close this window (or press Ctrl+C) to stop.\n\n');
+  process.stdout.write('    Keep this window open while you use the app.\n');
+  process.stdout.write('    To stop: just close this window.\n\n');
+  openPanel(link);
 });
 
 function shutdown() {
