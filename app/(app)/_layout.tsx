@@ -12,7 +12,7 @@ const ICONS = {
   index: '🏠',
   market: '🛒',
   auction: '🔨',
-  visualizer: '🪄',
+  renderan: '🪄',
   profile: '👤',
 } as const;
 
@@ -79,11 +79,11 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
-        name="visualizer"
+        name="renderan"
         options={{
-          title: t.tabs.visualizer,
+          title: t.tabs.renderan,
           headerShown: false,
-          tabBarIcon: ({ focused }) => <TabIcon name="visualizer" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="renderan" focused={focused} />,
         }}
       />
       <Tabs.Screen

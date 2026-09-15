@@ -1,5 +1,5 @@
 /**
- * Design tokens for the SangBazar app.
+ * Design tokens for the AnbarSang app.
  * Palette follows the product infographic: deep navy surfaces, cyan/blue accents,
  * amber for commercial actions (bids, commissions) and green for confirmations.
  */
@@ -101,7 +101,7 @@ export const moduleColors = {
   mine: '#F5A524',
   market: '#2E7DF7',
   auction: '#EF4444',
-  visualizer: '#8B5CF6',
+  renderan: '#8B5CF6',
   affiliate: '#22C55E',
   logistics: '#06B6D4',
   trade: '#EC4899',

@@ -4,6 +4,7 @@ import {
   exportGuide,
   mineDashboard,
   products as productFixtures,
+  renderProjects,
   shipments as shipmentFixtures,
   virtualTours,
 } from './fixtures';
@@ -14,9 +15,11 @@ import type {
   ExportGuideSection,
   MineDashboard,
   Product,
+  RenderProject,
   Rfq,
   Session,
   Shipment,
+  Texture,
   User,
   UserRole,
   VirtualTour,
@@ -102,7 +105,7 @@ export async function verifyOtp(phone: string, code: string): Promise<VerifyOtpR
       name: '',
       role: 'buyer',
       avatarColor: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-      affiliateCode: `SB${phone.slice(-4)}${randomId().slice(0, 3).toUpperCase()}`,
+      affiliateCode: `AS${phone.slice(-4)}${randomId().slice(0, 3).toUpperCase()}`,
       createdAt: new Date().toISOString(),
     };
   knownUsers.set(phone, user);
@@ -279,7 +282,7 @@ export async function getAffiliateStats(code: string): Promise<AffiliateStats> {
   await latency(280);
   return {
     code,
-    link: `https://sangbazar.app/r/${code}`,
+    link: `https://anbarsang.com/r/${code}`,
     clicks: 1_284,
     leads: 96,
     conversions: 17,
@@ -438,4 +441,61 @@ function buildReason(tagMatches: number, durabilityOk: boolean, lang: 'fa' | 'en
     durabilityOk ? 'و دوام موردنیاز را تأمین می‌کند.' : 'اما دوام آن کمتر از سطح درخواستی است.',
   ];
   return parts.join(' ');
+}
+
+/* ------------------------------------------------------------------ *
+ * Renderan — pre-modelled projects and stone textures
+ * ------------------------------------------------------------------ */
+
+/** Textures uploaded in this session, kept alongside the catalogue ones. */
+const uploadedTextures: Texture[] = [];
+
+export async function listRenderProjects(): Promise<RenderProject[]> {
+  if (!USE_MOCK_BACKEND) return request<RenderProject[]>('/renderan/projects');
+  await latency(220);
+  return renderProjects;
+}
+
+/**
+ * Every catalogue product doubles as a texture, plus anything a producer has
+ * uploaded — this is the library Renderan applies to a project.
+ */
+export async function listTextures(): Promise<Texture[]> {
+  if (!USE_MOCK_BACKEND) return request<Texture[]>('/renderan/textures');
+  await latency(220);
+  const fromCatalogue: Texture[] = productFixtures.map((product) => ({
+    id: `tx-${product.id}`,
+    title: product.title,
+    titleEn: product.titleEn,
+    colorHex: product.colorHex,
+    productId: product.id,
+    mineName: product.mineName,
+    mineNameEn: product.mineNameEn,
+    uploadedByMe: false,
+  }));
+  return [...uploadedTextures, ...fromCatalogue];
+}
+
+export interface UploadTextureInput {
+  title: string;
+  imageUri: string;
+  /** Average colour of the image, used to tint the render preview. */
+  colorHex: string;
+}
+
+export async function uploadTexture(input: UploadTextureInput): Promise<Texture> {
+  if (!USE_MOCK_BACKEND) {
+    return request<Texture>('/renderan/textures', { method: 'POST', body: input });
+  }
+  await latency(700);
+  const texture: Texture = {
+    id: `tx-up-${randomId()}`,
+    title: input.title,
+    titleEn: input.title,
+    colorHex: input.colorHex,
+    imageUri: input.imageUri,
+    uploadedByMe: true,
+  };
+  uploadedTextures.unshift(texture);
+  return texture;
 }

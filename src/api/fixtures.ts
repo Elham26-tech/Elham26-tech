@@ -449,3 +449,67 @@ export const currencyRates = {
 } as const;
 
 export type CurrencyCode = keyof typeof currencyRates;
+
+/** Pre-modelled scenes Renderan applies a texture to. */
+export const renderProjects: import('./types').RenderProject[] = [
+  {
+    id: 'rp-lobby',
+    title: 'لابی ساختمان مسکونی',
+    titleEn: 'Residential lobby',
+    space: 'floor',
+    surface: 'floor',
+    sceneColor: '#1E2A38',
+    accentColor: '#C9A227',
+    coverage: 0.52,
+  },
+  {
+    id: 'rp-facade',
+    title: 'نمای ساختمان اداری',
+    titleEn: 'Office building facade',
+    space: 'facade',
+    surface: 'facade',
+    sceneColor: '#25313F',
+    accentColor: '#5B8CC4',
+    coverage: 0.68,
+  },
+  {
+    id: 'rp-kitchen',
+    title: 'اپن و کانتر آشپزخانه',
+    titleEn: 'Kitchen island and counter',
+    space: 'kitchen',
+    surface: 'counter',
+    sceneColor: '#2B2F36',
+    accentColor: '#E5E0D6',
+    coverage: 0.44,
+  },
+  {
+    id: 'rp-bath',
+    title: 'دیوار سرویس بهداشتی',
+    titleEn: 'Bathroom wall',
+    space: 'bathroom',
+    surface: 'wall',
+    sceneColor: '#232B33',
+    accentColor: '#9FB8C8',
+    coverage: 0.6,
+  },
+  {
+    id: 'rp-stairs',
+    title: 'راه‌پله و پاگرد',
+    titleEn: 'Staircase and landing',
+    space: 'stairs',
+    surface: 'stairs',
+    sceneColor: '#1F262E',
+    accentColor: '#B8A88A',
+    coverage: 0.48,
+  },
+  {
+    id: 'rp-living',
+    title: 'دیوار نشیمن',
+    titleEn: 'Living-room feature wall',
+    space: 'wall',
+    surface: 'wall',
+    sceneColor: '#262B33',
+    accentColor: '#D6C7AE',
+    coverage: 0.56,
+  },
+];

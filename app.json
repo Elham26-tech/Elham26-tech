@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "سنگ‌بازار",
-    "slug": "sangbazar",
-    "scheme": "sangbazar",
+    "name": "انبار سنگ",
+    "slug": "anbarsang",
+    "scheme": "anbarsang",
     "version": "0.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -15,14 +15,14 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.sangbazar.app",
+      "bundleIdentifier": "com.anbarsang.app",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "برای انتخاب تصویر فضای خود در ویژوالایزر به گالری دسترسی لازم است.",
         "NSCameraUsageDescription": "برای عکس‌برداری از فضا در ویژوالایزر به دوربین دسترسی لازم است."
       }
     },
     "android": {
-      "package": "com.sangbazar.app",
+      "package": "com.anbarsang.app",
       "adaptiveIcon": {
         "backgroundColor": "#0A1F3C",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -53,7 +53,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiBaseUrl": "https://api.sangbazar.example/v1"
+      "apiBaseUrl": "https://anbarsang.com/api/v1"
     }
   }
 }

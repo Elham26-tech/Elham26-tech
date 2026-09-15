@@ -5,7 +5,7 @@ import { radius } from '@/theme';
 import { useTheme } from '@/theme/ThemeProvider';
 import { Text } from './Text';
 
-/** The app mark: a rounded tile with the stacked "S" of SangBazar. */
+/** The app mark: a rounded tile carrying the AnbarSang initial. */
 export function BrandMark({ size = 72 }: { size?: number }) {
   const { colors } = useTheme();
 
@@ -23,7 +23,7 @@ export function BrandMark({ size = 72 }: { size?: number }) {
     >
       <View style={[styles.corner, { backgroundColor: colors.amber, borderTopLeftRadius: radius.sm }]} />
       <Text variant="display" weight="bold" tone="inverse" style={{ fontSize: size * 0.46 }}>
-        S
+        س
       </Text>
     </View>
   );

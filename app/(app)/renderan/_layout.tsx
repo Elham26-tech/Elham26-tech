@@ -3,7 +3,7 @@ import React from 'react';
 
 import { useTheme } from '@/theme/ThemeProvider';
 
-export default function VisualizerLayout() {
+export default function RenderanLayout() {
   const { colors, t } = useTheme();
 
   return (
@@ -16,7 +16,7 @@ export default function VisualizerLayout() {
         contentStyle: { backgroundColor: colors.background },
       }}
     >
-      <Stack.Screen name="index" options={{ title: t.visualizer.title }} />
+      <Stack.Screen name="index" options={{ title: t.renderan.title }} />
     </Stack>
   );
 }

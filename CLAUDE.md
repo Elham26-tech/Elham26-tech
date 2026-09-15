@@ -1,6 +1,6 @@
-# SangBazar — راهنمای توسعه
+# AnbarSang — راهنمای توسعه
 
-اپلیکیشن موبایل «سنگ‌بازار»: پلتفرم جامع دیجیتال صنعت سنگ و معدن.
+اپلیکیشن موبایل «انبار سنگ»: مرجع خرید و فروش سنگ ساختمانی (anbarsang.com).
 
 ## Stack
 - Expo SDK 57 / React Native 0.86 / React 19، TypeScript strict

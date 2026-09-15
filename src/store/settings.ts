@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import type { Language } from '@/i18n';
 import type { ThemeMode } from '@/theme';
 
-const KEY = 'sangbazar.settings';
+const KEY = 'anbarsang.settings';
 
 interface PersistedSettings {
   language: Language;

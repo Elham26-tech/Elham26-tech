@@ -12,7 +12,7 @@ import Constants from 'expo-constants';
 export const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_BASE_URL ??
   (Constants.expoConfig?.extra?.apiBaseUrl as string | undefined) ??
-  'https://api.sangbazar.example/v1';
+  'https://anbarsang.com/api/v1';
 
 export const USE_MOCK_BACKEND =
   (process.env.EXPO_PUBLIC_USE_MOCK_BACKEND ?? 'true') !== 'false';

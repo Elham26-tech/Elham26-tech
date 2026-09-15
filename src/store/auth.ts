@@ -7,9 +7,9 @@ import { setAuthToken } from '@/api/client';
 import { completeProfile, verifyOtp } from '@/api/services';
 import type { Session, User, UserRole } from '@/api/types';
 
-const TOKEN_KEY = 'sangbazar.session.token';
-const REFRESH_KEY = 'sangbazar.session.refresh';
-const USER_KEY = 'sangbazar.session.user';
+const TOKEN_KEY = 'anbarsang.session.token';
+const REFRESH_KEY = 'anbarsang.session.refresh';
+const USER_KEY = 'anbarsang.session.user';
 
 /**
  * SecureStore is unavailable on web, so the token falls back to AsyncStorage

@@ -23,11 +23,12 @@ import { useTheme } from '@/theme/ThemeProvider';
 
 type ModuleKey = keyof typeof moduleColors;
 
+/** Home tiles, in the order the product map presents the services. */
 const MODULES: { key: ModuleKey; emoji: string; href: string }[] = [
   { key: 'mine', emoji: '⛏️', href: '/mine' },
   { key: 'market', emoji: '🛒', href: '/(app)/market' },
   { key: 'auction', emoji: '🔨', href: '/(app)/auction' },
-  { key: 'visualizer', emoji: '🪄', href: '/(app)/visualizer' },
+  { key: 'renderan', emoji: '🪄', href: '/(app)/renderan' },
   { key: 'affiliate', emoji: '📣', href: '/affiliate' },
   { key: 'logistics', emoji: '🚚', href: '/logistics' },
   { key: 'trade', emoji: '🌍', href: '/trade' },

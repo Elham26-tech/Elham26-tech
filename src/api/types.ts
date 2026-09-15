@@ -216,3 +216,39 @@ export interface VisualizerSuggestion {
   reason: string;
   reasonEn: string;
 }
+
+/* ------------------------------------------------------------------ *
+ * Renderan — instant stone rendering on pre-modelled projects
+ * ------------------------------------------------------------------ */
+
+export type RenderSurface = 'floor' | 'wall' | 'facade' | 'counter' | 'stairs';
+
+/** A pre-modelled 3D scene a texture is rendered into. */
+export interface RenderProject {
+  id: string;
+  title: string;
+  titleEn: string;
+  space: VisualizerSpace;
+  /** Which surface of the scene the chosen texture is applied to. */
+  surface: RenderSurface;
+  /** Base colour of the scene shell, behind the applied texture. */
+  sceneColor: string;
+  accentColor: string;
+  /** Portion of the scene the texture covers, 0 to 1 — drives the preview. */
+  coverage: number;
+}
+
+/** A stone texture that can be rendered onto a project. */
+export interface Texture {
+  id: string;
+  title: string;
+  titleEn: string;
+  colorHex: string;
+  /** Set when the texture came from a catalogue product rather than an upload. */
+  productId?: string;
+  mineName?: string;
+  mineNameEn?: string;
+  /** Local or remote image URI for an uploaded texture. */
+  imageUri?: string;
+  uploadedByMe: boolean;
+}
