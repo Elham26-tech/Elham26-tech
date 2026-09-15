@@ -171,6 +171,7 @@ test('پاک‌کردن حافظه، جلسه را صفر و تنظیمات را
 test('سفارش دستیِ موفق در مرورگر، یاد گرفته می‌شود', () => {
   const engine = new Engine();
   engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ easyTraderUrl: 'https://easy.broker.ir' });
   engine.session.learning = true;
 
   engine.onBrowserEvent({
@@ -191,6 +192,7 @@ test('سفارش دستیِ موفق در مرورگر، یاد گرفته می�
 test('سفارش دستیِ ناموفق یاد گرفته نمی‌شود', () => {
   const engine = new Engine();
   engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ easyTraderUrl: 'https://easy.broker.ir' });
   engine.session.learning = true;
 
   engine.onBrowserEvent({
@@ -290,6 +292,88 @@ test('قیمت حالت سقف واقعاً داخل سفارش می‌نشین�
   assert.strictEqual(body.order.price, 26250);
   assert.strictEqual(body.order.quantity, 400);
   assert.strictEqual(body.order.side, 'Buy');
+});
+
+// --- درخواست‌هایی که سفارش نیستند ---
+const ANALYTICS_REQUEST = {
+  method: 'POST',
+  url: 'https://www.google-analytics.com/g/collect?v=2&tid=G-X&dl=https%3A%2F%2Fd.easytrader.ir%2F',
+  headers: { 'content-type': 'text/plain' },
+  postData: '{}',
+};
+
+test('درخواست گوگل آنالیتیکس سفارش حساب نمی‌شود', () => {
+  // دامنهٔ کارگزاری خودش کلمهٔ trade را دارد؛ قبلاً همین باعث اشتباه می‌شد
+  assert.strictEqual(
+    recipe.looksLikeOrder(ANALYTICS_REQUEST, { origin: 'https://d.easytrader.ir' }),
+    false,
+  );
+  assert.strictEqual(recipe.looksLikeOrder(ANALYTICS_REQUEST), false);
+});
+
+test('درخواست سفارش واقعی کارگزاری پذیرفته می‌شود', () => {
+  const real = {
+    method: 'POST',
+    url: 'https://d.easytrader.ir/api/Order/Create',
+    headers: { 'content-type': 'application/json' },
+    postData: JSON.stringify({ isin: 'IRO1LBAN0001', side: 1, quantity: 5000, price: 10730 }),
+  };
+  assert.strictEqual(recipe.looksLikeOrder(real, { origin: 'https://d.easytrader.ir' }), true);
+});
+
+test('سایت دیگر بدون نشانهٔ قطعی رد می‌شود', () => {
+  const foreign = {
+    method: 'POST',
+    url: 'https://tracker.example.com/api/trade',
+    postData: JSON.stringify({ price: 5 }),
+  };
+  assert.strictEqual(recipe.looksLikeOrder(foreign, { origin: 'https://d.easytrader.ir' }), false);
+});
+
+test('اگر API کارگزاری روی دامنهٔ دیگری باشد، با نشانهٔ قطعی قبول می‌شود', () => {
+  // بعضی کارگزاری‌ها صفحه را روی یک دامنه و API سفارش را روی دامنهٔ دیگر دارند
+  const otherDomain = {
+    method: 'POST',
+    url: 'https://api.mofidonline.com/Order',
+    postData: JSON.stringify({ isin: 'IRO1LBAN0001', side: 1, quantity: 5000, price: 10730 }),
+  };
+  assert.strictEqual(recipe.looksLikeOrder(otherDomain, { origin: 'https://d.easytrader.ir' }), true);
+});
+
+test('زیردامنهٔ دیگرِ همان کارگزاری قبول است', () => {
+  const sub = {
+    method: 'POST',
+    url: 'https://api.easytrader.ir/v1/order',
+    postData: JSON.stringify({ side: 'Buy', quantity: 10, price: 5 }),
+  };
+  assert.strictEqual(recipe.looksLikeOrder(sub, { origin: 'https://d.easytrader.ir' }), true);
+});
+
+test('درخواست بدون فیلد نوع سفارش ذخیره نمی‌شود و یادگیری روشن می‌ماند', () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ easyTraderUrl: 'https://d.easytrader.ir' });
+  engine.session.learning = true;
+
+  const noSide = {
+    method: 'POST',
+    url: 'https://d.easytrader.ir/api/Order/Preview',
+    postData: JSON.stringify({ isin: 'IRO1LBAN0001', quantity: 5000, price: 10730 }),
+  };
+  engine.onBrowserEvent({ method: 'Network.requestWillBeSent', params: { requestId: 'x', request: noSide } });
+  engine.onBrowserEvent({ method: 'Network.responseReceived', params: { requestId: 'x', response: { status: 200 } } });
+
+  assert.strictEqual(engine.status().recipe, null);
+  assert.strictEqual(engine.session.learning, true, 'یادگیری باید روشن بماند');
+});
+
+test('دستور نامعتبرِ به‌جا مانده از نسخهٔ قبل، موقع شروع پاک می‌شود', () => {
+  store.saveRecipe(recipe.fromRequest(ANALYTICS_REQUEST, { status: 204 }));
+  assert.ok(store.loadLearned().recipe, 'برای تست باید ذخیره شده باشد');
+
+  const engine = new Engine();
+  assert.strictEqual(engine.status().recipe, null);
+  assert.ok(engine.session.log.some((l) => l.message.includes('معتبر نبود')));
 });
 
 let failed = 0;

@@ -22,8 +22,24 @@ class Engine {
     this.inFlight = 0;
     this.listeners = new Set();
 
+    this.dropInvalidRecipe();
     this.browser.on('event', (msg) => this.onBrowserEvent(msg));
     this.browser.on('disconnected', () => this.log('ارتباط با مرورگر قطع شد.', 'warn'));
+  }
+
+  /**
+   * نسخه‌های قبلی، درخواست‌های آمار (مثل گوگل آنالیتیکس) را هم سفارش
+   * حساب می‌کردند. چنین دستوری قابل اجرا نیست، پس همین ابتدا دور ریخته
+   * می‌شود تا کاربر دوباره و درست یاد بدهد.
+   */
+  dropInvalidRecipe() {
+    const recipe = this.learned.recipe;
+    if (!recipe) return;
+    const junk = !recipe.fields || !recipe.fields.side
+      || recipeLib.THIRD_PARTY.test(recipe.url || '');
+    if (!junk) return;
+    this.learned = store.resetLearned();
+    this.log('سفارش یادگرفته‌شدهٔ قبلی معتبر نبود و پاک شد؛ لطفاً یک بار دیگر دستی سفارش بزنید.', 'warn');
   }
 
   // ---- گزارش ----------------------------------------------------------
@@ -75,8 +91,14 @@ class Engine {
       const sentAt = Date.now();
       const result = await this.browser.send('Runtime.evaluate', {
         expression: `(async () => {
-          const res = await fetch(location.origin, { method: 'HEAD', cache: 'no-store' });
-          return res.headers.get('date') || '';
+          for (const init of [{ method: 'HEAD' }, { method: 'GET' }]) {
+            try {
+              const res = await fetch(location.href, { ...init, cache: 'no-store' });
+              const date = res.headers.get('date');
+              if (date) return date;
+            } catch (err) { /* روش بعدی */ }
+          }
+          return '';
         })()`,
         awaitPromise: true,
         returnByValue: true,
@@ -135,9 +157,18 @@ class Engine {
       this.pendingRequests.delete(requestId);
       if (!request || !this.session.learning) return;
       if (response.status < 200 || response.status >= 300) return;
-      if (!recipeLib.looksLikeOrder(request)) return;
+      if (!recipeLib.looksLikeOrder(request, { origin: this.settings.easyTraderUrl })) {
+        this.noteSkipped(request);
+        return;
+      }
 
       const recipe = recipeLib.fromRequest(request, response);
+      // بدون فیلد نوع سفارش، این دستور بعداً قابل اجرا نیست — ذخیره نمی‌کنیم
+      // و یادگیری روشن می‌ماند تا سفارش واقعی برسد.
+      if (!recipe.fields.side) {
+        this.log(`درخواست ${new URL(request.url).pathname} سفارش نبود (فیلد نوع سفارش نداشت) — رد شد.`, 'warn');
+        return;
+      }
       this.learned = store.saveRecipe(recipe);
       this.session.learning = false;
       this.log(`سفارش یاد گرفته شد — ${recipe.label}`, 'ok');
@@ -146,7 +177,17 @@ class Engine {
     }
   }
 
+  /** چند تا از درخواست‌هایی که سفارش نبودند را گزارش می‌کند، بدون شلوغ‌کاری */
+  noteSkipped(request) {
+    this.skipped = (this.skipped || 0) + 1;
+    if (this.skipped > 5) return;
+    let where = request.url;
+    try { where = new URL(request.url).pathname; } catch { /* آدرس نامعتبر */ }
+    this.log(`نادیده گرفته شد (سفارش نبود): ${where}`, 'info');
+  }
+
   setLearning(on) {
+    this.skipped = 0;
     this.session.learning = Boolean(on);
     this.log(on ? 'حالت یادگیری روشن شد؛ یک سفارش دستی ثبت کنید.' : 'حالت یادگیری خاموش شد.', 'info');
     this.persist();

@@ -8,7 +8,17 @@
 // وقتی رخ می‌داد که این مقدار ساختگی بود.
 // -----------------------------------------------------------------------
 
-const ORDER_URL = /(order|سفارش|trade|deal)/i;
+// مسیرهایی که بوی ثبت سفارش می‌دهند — فقط روی path بررسی می‌شود، نه دامنه،
+// چون نام دامنهٔ کارگزاری («easyTRADEr») خودش کلمهٔ trade را دارد و هر
+// درخواستی به آن دامنه را شبیه سفارش نشان می‌داد.
+const ORDER_PATH = /(order|سفارش|trade|deal|buy|sell)/i;
+
+// سرویس‌های آمار و تبلیغات که صفحهٔ کارگزاری صدایشان می‌زند و هرگز سفارش نیستند
+const THIRD_PARTY = new RegExp([
+  'google-analytics', 'googletagmanager', 'google\\.com', 'gstatic', 'doubleclick',
+  'facebook', 'clarity\\.ms', 'yektanet', 'metrix', 'sentry', 'hotjar',
+  'mixpanel', 'segment\\.', 'intercom', 'crisp\\.chat', 'zarinpal',
+].join('|'), 'i');
 
 // هدرهایی که نباید تکرار شوند (مرورگر خودش می‌سازدشان یا منقضی می‌شوند)
 const VOLATILE_HEADERS = new Set([
@@ -67,18 +77,53 @@ function mapFields(parsedBody) {
   return fields;
 }
 
-/** آیا این درخواستِ ضبط‌شده یک ثبت سفارش است؟ */
-function looksLikeOrder(request) {
+/** دامنهٔ ریشه، مثل «easytrader.ir» از «d.easytrader.ir» */
+function baseDomain(hostname) {
+  const parts = String(hostname || '').split('.').filter(Boolean);
+  return parts.slice(-2).join('.');
+}
+
+/**
+ * آیا این درخواستِ ضبط‌شده واقعاً یک ثبت سفارش است؟
+ *
+ * تشخیص بر پایهٔ محتواست نه آدرس: باید بدنهٔ JSON داشته باشد و داخلش
+ * فیلدهای شناخته‌شدهٔ سفارش (نوع، تعداد، قیمت) پیدا شود. آدرس فقط
+ * می‌تواند کمک کند، هیچ‌وقت به‌تنهایی کافی نیست.
+ */
+function looksLikeOrder(request, { origin } = {}) {
   const method = String(request.method || '').toUpperCase();
   if (method !== 'POST' && method !== 'PUT') return false;
-  if (ORDER_URL.test(request.url || '')) return true;
   if (!request.postData) return false;
-  try {
-    const fields = mapFields(JSON.parse(request.postData));
-    return Boolean(fields.side && fields.quantity);
-  } catch {
-    return false;
+
+  let url;
+  try { url = new URL(request.url); } catch { return false; }
+
+  if (THIRD_PARTY.test(url.hostname)) return false;
+
+  let parsed;
+  try { parsed = JSON.parse(request.postData); } catch { return false; }
+  if (!parsed || typeof parsed !== 'object') return false;
+
+  const fields = mapFields(parsed);
+  const hasQuantityOrPrice = Boolean(fields.quantity || fields.price);
+  // نشانهٔ قطعی: هم نوع سفارش و هم تعداد در بدنه هست
+  const definite = Boolean(fields.side && fields.quantity);
+
+  let sameBroker = true;
+  if (origin) {
+    try {
+      const brokerDomain = baseDomain(new URL(origin).hostname);
+      sameBroker = !brokerDomain || baseDomain(url.hostname) === brokerDomain;
+    } catch { /* آدرس کارگزاری نامعتبر بود */ }
   }
+
+  // API کارگزاری ممکن است روی دامنهٔ دیگری باشد؛ در آن حالت فقط با
+  // نشانهٔ قطعی قبول می‌کنیم تا چیزی مثل آمار اشتباهی یاد گرفته نشود.
+  if (!sameBroker) return definite;
+
+  if (fields.side && hasQuantityOrPrice) return true;
+  if (ORDER_PATH.test(url.pathname) && hasQuantityOrPrice) return true;
+  return false;
 }
 
 /** از یک درخواست ضبط‌شده، دستور قابل تکرار می‌سازد */
@@ -161,7 +206,9 @@ function validate(recipe, overrides = {}) {
 }
 
 module.exports = {
-  ORDER_URL,
+  ORDER_PATH,
+  THIRD_PARTY,
+  baseDomain,
   cleanHeaders,
   mapFields,
   looksLikeOrder,
