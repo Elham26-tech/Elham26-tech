@@ -21,8 +21,13 @@ const PROFILE_DIR = path.join(DATA_DIR, 'chrome-profile');
 const DEFAULT_SETTINGS = {
   easyTraderUrl: 'https://easy.mofidonline.com',
   symbol: '',
+  symbolName: '',
+  insCode: '',
   quantity: null,
   price: null,
+  priceMode: 'manual',    // manual | max | min  — سقف/کف مجاز یا قیمت دستی
+  rangePercent: 5,        // دامنهٔ نوسان، فقط برای تخمین وقتی TSETMC آستانه ندهد
+  instrument: null,       // آخرین سقف/کف گرفته‌شده از TSETMC
   targetTime: '08:45:00',
   preArmSeconds: 60,      // باگ ۳ — چند ثانیه زودتر شلیک شروع شود
   sendRate: 8,

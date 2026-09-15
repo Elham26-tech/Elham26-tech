@@ -7,7 +7,7 @@
 // -----------------------------------------------------------------------
 
 const FIELDS = [
-  'easyTraderUrl', 'symbol', 'quantity', 'price', 'targetTime', 'preArmSeconds',
+  'easyTraderUrl', 'quantity', 'price', 'priceMode', 'targetTime', 'preArmSeconds',
   'sendRate', 'parallel', 'stopAfterSeconds', 'maxAttempts',
 ];
 
@@ -126,6 +126,8 @@ function render(status) {
     ? `${r.method} ${r.url}\nفیلدها: ${r.fields.join('، ')}\nمقدار نوع سفارش: ${r.side}\nزمان یادگیری: ${new Date(r.learnedAt).toLocaleString('fa-IR')}`
     : 'هنوز سفارشی یاد گرفته نشده.';
 
+  renderInstrument(status);
+
   $('btn-arm').disabled = s.armed || s.firing || !r;
   $('btn-fire').disabled = !r;
   $('btn-disarm').disabled = !s.armed && !s.firing;
@@ -135,6 +137,76 @@ function render(status) {
     lastLogLength = s.log.length;
   }
 }
+
+function renderInstrument(status) {
+  const inst = status.settings.instrument;
+  $('instrument-box').hidden = !inst;
+  if (inst) {
+    $('inst-title').textContent = `${inst.symbol || '—'}${inst.name ? ' — ' + inst.name : ''}`;
+    $('inst-max').textContent = fa(inst.priceMax ?? '—');
+    $('inst-min').textContent = fa(inst.priceMin ?? '—');
+    $('inst-yday').textContent = fa(inst.yesterdayPrice ?? '—');
+    $('inst-qty').textContent = (inst.minQuantity || inst.maxQuantity)
+      ? `${fa(inst.minQuantity ?? '—')} تا ${fa(inst.maxQuantity ?? '—')}`
+      : 'TSETMC نداد — دستی';
+    $('inst-note').textContent = inst.estimated
+      ? 'سقف/کف از قیمت دیروز تخمین زده شده، چون TSETMC آستانهٔ رسمی نداد. قبل از ارسال بررسی کنید.'
+      : `ISIN: ${inst.isin || '—'}`;
+  }
+
+  // حالت دستی فقط وقتی فیلد قیمت دیده شود
+  $('price-manual-row').hidden = status.settings.priceMode !== 'manual';
+  $('effective-price').textContent = status.effectivePrice == null ? '—' : fa(status.effectivePrice);
+  $('btn-max-qty').disabled = !(inst && inst.maxQuantity);
+}
+
+function renderResults(rows) {
+  const list = $('results');
+  list.replaceChildren();
+  list.hidden = rows.length === 0;
+  for (const row of rows) {
+    const li = document.createElement('li');
+    li.tabIndex = 0;
+    li.innerHTML = `<b></b><span class="muted"></span>`;
+    li.querySelector('b').textContent = row.symbol;
+    li.querySelector('span').textContent = row.name;
+    const choose = async () => {
+      list.hidden = true;
+      try {
+        const result = await api('/api/symbols/select', { method: 'POST', body: row });
+        render(result.status);
+      } catch (err) { showError(err); }
+    };
+    li.addEventListener('click', choose);
+    li.addEventListener('keydown', (e) => { if (e.key === 'Enter') choose(); });
+    list.append(li);
+  }
+}
+
+async function searchSymbols() {
+  const query = $('symbolQuery').value.trim();
+  if (!query) return;
+  $('btn-search').disabled = true;
+  try {
+    const result = await api('/api/symbols/search', { method: 'POST', body: { query } });
+    renderResults(result.rows || []);
+    if (!result.ok) showError(new Error(result.error || 'جست‌وجو ناموفق بود'));
+  } catch (err) {
+    showError(err);
+  } finally {
+    $('btn-search').disabled = false;
+  }
+}
+
+$('btn-search').addEventListener('click', searchSymbols);
+$('symbolQuery').addEventListener('keydown', (e) => { if (e.key === 'Enter') searchSymbols(); });
+$('btn-max-qty').addEventListener('click', async () => {
+  const status = await api('/api/status');
+  const max = status.settings.instrument && status.settings.instrument.maxQuantity;
+  if (!max) return;
+  $('quantity').value = String(max);
+  scheduleSave();
+});
 
 function bindAction(id, path, body) {
   $(id).addEventListener('click', async () => {
@@ -172,6 +244,7 @@ bindAction('btn-disarm', '/api/disarm');
 bindAction('btn-fire', '/api/fire');
 bindAction('btn-validate', '/api/validate');
 bindAction('btn-sync', '/api/sync-clock');
+bindAction('btn-diagnostics', '/api/diagnostics');
 bindAction('btn-reset-session', '/api/reset', { session: true, learned: false });
 bindAction('btn-reset-learned', '/api/reset', { session: false, learned: true });
 

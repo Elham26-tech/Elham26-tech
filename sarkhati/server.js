@@ -64,6 +64,15 @@ async function handleApi(req, res, route) {
   if (route === '/api/validate' && req.method === 'POST') {
     return sendJson(res, 200, { ...engine.validate(), status: engine.status() });
   }
+  if (route === '/api/symbols/search' && req.method === 'POST') {
+    const body = await readBody(req);
+    return sendJson(res, 200, await engine.searchSymbol(body.query));
+  }
+  if (route === '/api/symbols/select' && req.method === 'POST') {
+    const body = await readBody(req);
+    const result = await engine.selectSymbol(body);
+    return sendJson(res, 200, { ...result, status: engine.status() });
+  }
   if (route === '/api/open-easytrader' && req.method === 'POST') {
     const result = await engine.openEasyTrader();
     return sendJson(res, 200, { ...result, status: engine.status() });
@@ -84,6 +93,9 @@ async function handleApi(req, res, route) {
   }
   if (route === '/api/fire' && req.method === 'POST') {
     return sendJson(res, 200, await engine.fireNow());
+  }
+  if (route === '/api/diagnostics' && req.method === 'POST') {
+    return sendJson(res, 200, { ...engine.exportDiagnostics(), status: engine.status() });
   }
   if (route === '/api/reset' && req.method === 'POST') {
     const body = await readBody(req);

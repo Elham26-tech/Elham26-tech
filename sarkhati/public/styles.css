@@ -185,3 +185,40 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-bottom: 
   direction: ltr;
   text-align: left;
 }
+
+.search { display: flex; gap: 8px; margin-bottom: 8px; }
+.search input { margin-top: 0; }
+button.inline { width: auto; margin: 0; padding: 8px 14px; white-space: nowrap; }
+.row button.inline { align-self: flex-end; margin-bottom: 10px; }
+
+.results {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.results li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.results li:last-child { border-bottom: 0; }
+.results li:hover, .results li:focus { background: var(--bg); outline: none; }
+.results li b { font-weight: 700; }
+.results li span { font-size: 12px; }
+
+.instrument {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--ok);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.inst-title { font-weight: 700; margin-bottom: 6px; }
+.instrument .status > div:last-child { border-bottom: 0; }

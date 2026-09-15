@@ -10,6 +10,7 @@ process.env.SARKHATI_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'sarkhati-
 
 const store = require('../lib/store');
 const recipe = require('../lib/recipe');
+const tsetmc = require('../lib/tsetmc');
 const { Engine } = require('../lib/engine');
 
 const tests = [];
@@ -202,6 +203,93 @@ test('سفارش دستیِ ناموفق یاد گرفته نمی‌شود', () 
   });
 
   assert.strictEqual(engine.status().recipe, null);
+});
+
+// --- نماد و سقف/کف (TSETMC) ---
+test('پاسخ JSON جست‌وجو به فهرست نماد تبدیل می‌شود', () => {
+  const rows = tsetmc.parseSearchJson({
+    instrumentSearch: [
+      { lVal18AFC: 'فولاد', lVal30: 'فولاد مباركه اصفهان', insCode: '46348559193224090', lastDate: 20260915 },
+      { lVal18AFC: 'فولاژ', lVal30: 'فولاد آلياژي ايران', insCode: '14957056743925737', lastDate: 20260915 },
+      { lVal18AFC: '', lVal30: 'بدون کد', insCode: '' },
+    ],
+  });
+  assert.strictEqual(rows.length, 2);
+  assert.strictEqual(rows[0].symbol, 'فولاد');
+  assert.strictEqual(rows[0].insCode, '46348559193224090');
+});
+
+test('پاسخ متنی سرویس قدیمی هم خوانده می‌شود', () => {
+  const rows = tsetmc.parseSearchLegacy(
+    'فولاد,فولاد مباركه اصفهان,46348559193224090,1,1,1,,1;فولاژ,فولاد آلياژي,14957056743925737,1,1,1,,1;',
+  );
+  assert.strictEqual(rows.length, 2);
+  assert.strictEqual(rows[1].symbol, 'فولاژ');
+});
+
+test('سقف و کف بدون تکیه بر نام فیلد درمی‌آید', () => {
+  const t = tsetmc.thresholdsFromObject({
+    insCode: '46348559193224090', dEven: 20260915,
+    psGelStaticThreshold: 26250, psGelStaticThresholdMin: 23750,
+  });
+  assert.strictEqual(t.max, 26250);
+  assert.strictEqual(t.min, 23750);
+});
+
+test('شناسه‌ها با سقف/کف اشتباه گرفته نمی‌شوند', () => {
+  const t = tsetmc.thresholdsFromObject({ insCode: '46348559193224090', dEven: 20260915 });
+  assert.strictEqual(t.max, null);
+  assert.strictEqual(t.min, null);
+});
+
+test('ISIN از پاسخ اطلاعات نماد پیدا می‌شود', () => {
+  const flat = tsetmc.flatten({ instrumentInfo: { instrumentID: 'IRO1FOLD0001', lVal18AFC: 'فولاد' } });
+  assert.strictEqual(tsetmc.pickIsin(flat), 'IRO1FOLD0001');
+  assert.strictEqual(tsetmc.pickIsin(tsetmc.flatten({ a: 'NOTANISIN' })), null);
+});
+
+test('عدد بر اساس الگوی نام کلید برداشته می‌شود', () => {
+  const flat = tsetmc.flatten({ instrumentInfo: { baseVol: 9600000, maxOrderQty: 200000, zero: 0 } });
+  assert.strictEqual(tsetmc.pickNumber(flat, /^baseVol$/i), 9600000);
+  assert.strictEqual(tsetmc.pickNumber(flat, /^maxOrderQty$/i), 200000);
+  assert.strictEqual(tsetmc.pickNumber(flat, /^zero$/i), null);
+});
+
+test('قیمت ارسالی از حالت انتخابی می‌آید', () => {
+  const engine = new Engine();
+  engine.updateSettings({
+    price: 111,
+    instrument: { priceMax: 26250, priceMin: 23750 },
+  });
+
+  engine.updateSettings({ priceMode: 'max' });
+  assert.strictEqual(engine.effectivePrice(), 26250);
+
+  engine.updateSettings({ priceMode: 'min' });
+  assert.strictEqual(engine.effectivePrice(), 23750);
+
+  engine.updateSettings({ priceMode: 'manual' });
+  assert.strictEqual(engine.effectivePrice(), 111);
+});
+
+test('اگر سقف/کف نداشته باشیم، قیمت دستی ملاک است', () => {
+  const engine = new Engine();
+  engine.updateSettings({ price: 500, priceMode: 'max', instrument: null });
+  assert.strictEqual(engine.effectivePrice(), 500);
+});
+
+test('قیمت حالت سقف واقعاً داخل سفارش می‌نشیند', () => {
+  const engine = new Engine();
+  engine.updateSettings({
+    priceMode: 'max',
+    quantity: 400,
+    instrument: { priceMax: 26250, priceMin: 23750 },
+  });
+  const built = recipe.build(recipe.fromRequest(SAMPLE_REQUEST), engine.overrides());
+  const body = JSON.parse(built.body);
+  assert.strictEqual(body.order.price, 26250);
+  assert.strictEqual(body.order.quantity, 400);
+  assert.strictEqual(body.order.side, 'Buy');
 });
 
 let failed = 0;

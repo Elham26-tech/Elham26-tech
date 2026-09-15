@@ -36,15 +36,39 @@
     </div>
     <button id="btn-learn" class="ghost">روشن کردن دوبارهٔ یادگیری</button>
 
-    <h2>گام ۳ — سفارش امروز</h2>
-    <div class="row">
-      <label>نماد / ISIN<input id="symbol" type="text" placeholder="مثل سفارش یادگرفته‌شده" /></label>
-      <label>تعداد<input id="quantity" type="number" min="1" placeholder="—" /></label>
-      <label>قیمت<input id="price" type="number" min="0" placeholder="—" /></label>
+    <h2>گام ۳ — نماد</h2>
+    <div class="search">
+      <input id="symbolQuery" type="search" placeholder="نام نماد را بنویسید، مثل فولاد" />
+      <button id="btn-search" class="inline">جست‌وجو</button>
     </div>
-    <p class="muted">خالی بگذارید تا همان مقدار سفارش یادگرفته‌شده استفاده شود.</p>
+    <ul id="results" class="results" hidden></ul>
+    <div class="instrument" id="instrument-box" hidden>
+      <div class="inst-title" id="inst-title">—</div>
+      <dl class="status">
+        <div><dt>سقف مجاز</dt><dd id="inst-max">—</dd></div>
+        <div><dt>کف مجاز</dt><dd id="inst-min">—</dd></div>
+        <div><dt>قیمت دیروز</dt><dd id="inst-yday">—</dd></div>
+        <div><dt>تعداد مجاز هر سفارش</dt><dd id="inst-qty">—</dd></div>
+      </dl>
+      <p class="muted" id="inst-note"></p>
+    </div>
 
-    <h2>گام ۴ — ساعت</h2>
+    <h2>گام ۴ — تعداد و قیمت</h2>
+    <label>قیمت
+      <select id="priceMode">
+        <option value="max">سقف مجاز (سرخط خرید)</option>
+        <option value="min">کف مجاز (سرخط فروش)</option>
+        <option value="manual">دستی</option>
+      </select>
+    </label>
+    <label id="price-manual-row">قیمت دستی<input id="price" type="number" min="0" placeholder="—" /></label>
+    <div class="row">
+      <label>تعداد<input id="quantity" type="number" min="1" placeholder="—" /></label>
+      <button id="btn-max-qty" class="inline">حداکثر مجاز</button>
+    </div>
+    <p class="muted">قیمتی که واقعاً ارسال می‌شود: <b id="effective-price">—</b></p>
+
+    <h2>گام ۵ — ساعت</h2>
     <div class="row">
       <label>ساعت هدف<input id="targetTime" type="text" placeholder="08:45:00" /></label>
       <label>شروع چند ثانیه زودتر<input id="preArmSeconds" type="number" min="0" max="600" /></label>
@@ -89,6 +113,7 @@
       </div>
       <pre class="recipe" id="recipe-box">هنوز سفارشی یاد گرفته نشده.</pre>
       <div class="row">
+        <button id="btn-diagnostics" class="ghost">ساختن فایل عیب‌یابی</button>
         <button id="btn-reset-session" class="ghost">پاک‌کردن حافظهٔ جلسه</button>
         <button id="btn-reset-learned" class="ghost">فراموش‌کردن سفارش</button>
       </div>

@@ -1,7 +1,10 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
 const store = require('./store');
 const recipeLib = require('./recipe');
+const tsetmc = require('./tsetmc');
 const { Browser } = require('./browser');
 
 const MAX_LOG = 400;
@@ -150,11 +153,81 @@ class Engine {
     return this.status();
   }
 
+  // ---- نماد و سقف/کف --------------------------------------------------
+  async searchSymbol(query) {
+    try {
+      const { rows, source } = await tsetmc.search(query);
+      this.log(`جست‌وجوی «${query}»: ${rows.length} نماد پیدا شد.`, rows.length ? 'ok' : 'warn');
+      this.persist();
+      return { ok: true, rows: rows.slice(0, 25), source };
+    } catch (err) {
+      this.log(`جست‌وجوی نماد ناموفق: ${err.message}`, 'error');
+      this.persist();
+      return { ok: false, rows: [], error: err.message };
+    }
+  }
+
+  /** نماد را انتخاب و سقف/کف مجازش را از TSETMC می‌گیرد */
+  async selectSymbol({ insCode, symbol, name }) {
+    try {
+      const info = await tsetmc.limits(insCode, { rangePercent: this.settings.rangePercent });
+      this.lastTsetmcRaw = info.raw;
+      const instrument = {
+        insCode: info.insCode,
+        symbol: info.symbol || symbol || '',
+        name: info.name || name || '',
+        isin: info.isin,
+        priceMax: info.priceMax,
+        priceMin: info.priceMin,
+        estimated: info.estimated,
+        yesterdayPrice: info.yesterdayPrice,
+        lastPrice: info.lastPrice,
+        maxQuantity: info.maxQuantity,
+        minQuantity: info.minQuantity,
+        baseVolume: info.baseVolume,
+        fetchedAt: new Date().toISOString(),
+      };
+
+      this.settings = store.saveSettings({
+        insCode: instrument.insCode,
+        // کارگزاری معمولاً ISIN می‌خواهد؛ اگر نبود، همان نماد می‌رود
+        symbol: instrument.isin || instrument.symbol,
+        symbolName: instrument.name,
+        instrument,
+      });
+
+      this.log(
+        `نماد ${instrument.symbol}: سقف ${instrument.priceMax ?? '—'} / کف ${instrument.priceMin ?? '—'}` +
+          (instrument.estimated ? ' (تخمینی از قیمت دیروز)' : ''),
+        'ok',
+      );
+      if (instrument.maxQuantity || instrument.minQuantity) {
+        this.log(`تعداد مجاز هر سفارش: ${instrument.minQuantity ?? '—'} تا ${instrument.maxQuantity ?? '—'}`, 'info');
+      } else {
+        this.log('TSETMC سقف/کف تعداد نداد؛ تعداد را دستی بگذارید.', 'warn');
+      }
+      this.persist();
+      return { ok: true, instrument };
+    } catch (err) {
+      this.log(`گرفتن اطلاعات نماد ناموفق: ${err.message}`, 'error');
+      this.persist();
+      return { ok: false, error: err.message };
+    }
+  }
+
+  /** قیمتی که واقعاً ارسال می‌شود: سقف مجاز، کف مجاز، یا عدد دستی */
+  effectivePrice() {
+    const instrument = this.settings.instrument;
+    if (this.settings.priceMode === 'max' && instrument && instrument.priceMax) return instrument.priceMax;
+    if (this.settings.priceMode === 'min' && instrument && instrument.priceMin) return instrument.priceMin;
+    return this.settings.price ?? undefined;
+  }
+
   overrides() {
     return {
       symbol: this.settings.symbol || undefined,
       quantity: this.settings.quantity ?? undefined,
-      price: this.settings.price ?? undefined,
+      price: this.effectivePrice(),
     };
   }
 
@@ -298,6 +371,47 @@ class Engine {
     return this.status();
   }
 
+  /**
+   * یک فایل خروجی برای عیب‌یابی می‌سازد که هر چیز محرمانه‌ای (توکن، کوکی،
+   * کلید) داخلش حذف شده — امن برای فرستادن به کسی که کمک می‌کند.
+   */
+  exportDiagnostics() {
+    const SECRET = /(auth|token|key|cookie|session|password|jwt|bearer)/i;
+    const redact = (obj) => Object.fromEntries(
+      Object.entries(obj || {}).map(([k, v]) => [k, SECRET.test(k) ? '«حذف شد»' : v]),
+    );
+
+    const recipe = this.learned.recipe;
+    const report = {
+      ساخته_شده: new Date().toISOString(),
+      نسخهٔ_نود: process.version,
+      سیستم: process.platform,
+      تنظیمات: {
+        ...redact(this.settings),
+        instrument: this.settings.instrument,
+      },
+      سفارش_یادگرفته‌شده: recipe && {
+        method: recipe.method,
+        url: recipe.url,
+        headerNames: Object.keys(recipe.headers || {}),
+        headers: redact(recipe.headers),
+        body: recipe.parsedBody,
+        fields: recipe.fields,
+        learnedAt: recipe.learnedAt,
+      },
+      آخرین_پاسخ_TSETMC: this.lastTsetmcRaw || null,
+      گزارش: this.session.log.slice(-60),
+    };
+
+    const file = path.join(store.DATA_DIR, 'diagnostics.json');
+    fs.mkdirSync(store.DATA_DIR, { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(report, null, 2));
+    this.log(`فایل عیب‌یابی ساخته شد: ${file}`, 'ok');
+    this.log('این فایل توکن و کوکی ندارد و فرستادنش امن است.', 'info');
+    this.persist();
+    return { ok: true, file };
+  }
+
   // ---- وضعیت ----------------------------------------------------------
   updateSettings(patch) {
     this.settings = store.saveSettings(patch);
@@ -328,6 +442,7 @@ class Engine {
       secondsToFireStart: Math.round((this.fireStartTimestamp(now) - now.getTime()) / 1000),
       browserConnected: this.browser.connected,
       settings: this.settings,
+      effectivePrice: this.effectivePrice() ?? null,
       recipe: recipe && {
         label: recipe.label,
         url: recipe.url,
