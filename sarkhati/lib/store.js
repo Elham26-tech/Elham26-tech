@@ -7,68 +7,48 @@ const DATA_DIR = process.env.SARKHATI_DATA_DIR || path.join(__dirname, '..', 'da
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const SESSION_FILE = path.join(DATA_DIR, 'session.json');
 const LEARNED_FILE = path.join(DATA_DIR, 'learned.json');
+const PROFILE_DIR = path.join(DATA_DIR, 'chrome-profile');
 
 // --- باگ ۱ -------------------------------------------------------------
-// سه لایهٔ جدا از هم نگه می‌داریم:
-//   settings : تنظیمات ماندگار کاربر (آدرس کارگزاری، نماد، تعداد، ...)
-//   session  : وضعیت یک روز معاملاتی (مسلح بودن، شمارش تلاش‌ها، گزارش)
-//              — با کلید روز نگهداری می‌شود و روز بعد دور ریخته می‌شود
-//   learned  : چیزهایی که برنامه از پاسخ کارگزاری یاد گرفته (قالب فیلدها)
-// با این کار «حافظهٔ قبلی» دیگر بین اجراها نشت نمی‌کند.
+// سه لایهٔ جدا:
+//   settings : تنظیمات ماندگار (نماد، تعداد، قیمت، ساعت هدف، ...)
+//   session  : وضعیت یک روز معاملاتی (مسلح بودن، تلاش‌ها، گزارش) —
+//              با کلید روز نگهداری می‌شود و روز بعد دور ریخته می‌شود
+//   learned  : دستور سفارشی که از ایزی‌تریدر یاد گرفته شده
+// به این ترتیب باز کردن دوبارهٔ برنامه، وضعیت اجرای قبلی را برنمی‌گرداند.
 // -----------------------------------------------------------------------
 
 const DEFAULT_SETTINGS = {
-  baseUrl: '',
-  orderPath: '/Order',
-  token: '',
-  isinOrSymbol: '',
-  side: 'buy',
-  quantity: 1,
-  price: 0,
-  minQuantity: null,
-  maxQuantity: null,
-  priceStep: 1,
+  easyTraderUrl: 'https://easy.mofidonline.com',
+  symbol: '',
+  quantity: null,
+  price: null,
   targetTime: '08:45:00',
-  // --- باگ ۳ ---
-  preArmSeconds: 60,      // چند ثانیه زودتر از ساعت هدف شلیک شروع شود
-  sendRate: 12,           // تلاش در ثانیه
-  parallel: 2,            // اتصال موازی
-  stopAfterSeconds: 10,   // سقف مدت شلیک
-  maxAttempts: 400,
-  // --- باگ ۲ ---
-  sideFormat: 'auto',     // auto | numeric | pascal | lower | upper
-  autoLearnSide: true,
+  preArmSeconds: 60,      // باگ ۳ — چند ثانیه زودتر شلیک شروع شود
+  sendRate: 8,
+  parallel: 2,
+  stopAfterSeconds: 15,
+  maxAttempts: 300,
   clockOffsetMs: 0,
-  timeSyncUrl: '',
 };
 
-const DEFAULT_LEARNED = { sideFormat: null, learnedAt: null, learnedFrom: null };
-
-function ensureDir() {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-}
+const DEFAULT_LEARNED = { recipe: null, history: [] };
 
 function readJson(file, fallback) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
 }
 
 function writeJson(file, value) {
-  ensureDir();
+  fs.mkdirSync(DATA_DIR, { recursive: true });
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value, null, 2));
   fs.renameSync(tmp, file);
 }
 
-/** شناسهٔ روز معاملاتی جاری به وقت محلی، مثلاً «2026-09-15» */
+/** شناسهٔ روز معاملاتی جاری به وقت محلی، مثل «2026-09-15» */
 function tradingDay(now = new Date()) {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 function freshSession(day = tradingDay()) {
@@ -78,18 +58,18 @@ function freshSession(day = tradingDay()) {
     armedAt: null,
     firing: false,
     finished: false,
+    learning: false,
     attempts: 0,
     accepted: 0,
     rejected: 0,
     lastError: null,
-    successOrderId: null,
+    successText: null,
     log: [],
   };
 }
 
 function loadSettings() {
-  const saved = readJson(SETTINGS_FILE, {});
-  return { ...DEFAULT_SETTINGS, ...saved };
+  return { ...DEFAULT_SETTINGS, ...readJson(SETTINGS_FILE, {}) };
 }
 
 function saveSettings(patch) {
@@ -99,9 +79,8 @@ function saveSettings(patch) {
 }
 
 /**
- * وضعیت جلسه را می‌خواند. اگر مربوط به روز معاملاتی دیگری باشد
- * (یعنی برنامه دیروز باز بوده و امروز دوباره باز شده) یک جلسهٔ خالی
- * برمی‌گرداند — این همان باگی بود که «حافظهٔ قبلی» را نگه می‌داشت.
+ * وضعیت جلسه. اگر مربوط به روز معاملاتی دیگری باشد، یک جلسهٔ خالی
+ * برمی‌گرداند؛ و «مسلح/در حال شلیک» هرگز از اجرای قبلی به ارث نمی‌رسد.
  */
 function loadSession() {
   const today = tradingDay();
@@ -111,9 +90,7 @@ function loadSession() {
     writeJson(SESSION_FILE, clean);
     return clean;
   }
-  // حتی در همان روز، «مسلح بودن» را از اجرای قبلی به ارث نمی‌بریم:
-  // بعد از بسته و باز شدن برنامه باید کاربر دوباره آگاهانه مسلح کند.
-  return { ...saved, armed: false, firing: false };
+  return { ...saved, armed: false, firing: false, learning: false };
 }
 
 function saveSession(session) {
@@ -129,19 +106,25 @@ function loadLearned() {
   return { ...DEFAULT_LEARNED, ...readJson(LEARNED_FILE, {}) };
 }
 
-function saveLearned(patch) {
-  const next = { ...loadLearned(), ...patch };
+function saveRecipe(recipe) {
+  const current = loadLearned();
+  const history = [
+    { learnedAt: recipe.learnedAt, label: recipe.label, url: recipe.url },
+    ...current.history,
+  ].slice(0, 10);
+  const next = { recipe, history };
   writeJson(LEARNED_FILE, next);
   return next;
 }
 
 function resetLearned() {
   writeJson(LEARNED_FILE, DEFAULT_LEARNED);
-  return { ...DEFAULT_LEARNED };
+  return { ...DEFAULT_LEARNED, history: [] };
 }
 
 module.exports = {
   DATA_DIR,
+  PROFILE_DIR,
   DEFAULT_SETTINGS,
   tradingDay,
   freshSession,
@@ -151,6 +134,6 @@ module.exports = {
   saveSession,
   resetSession,
   loadLearned,
-  saveLearned,
+  saveRecipe,
   resetLearned,
 };

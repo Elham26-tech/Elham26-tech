@@ -2,7 +2,7 @@
   "name": "sarkhati",
   "version": "1.0.0",
   "private": true,
-  "description": "سرخطی‌زن — ارسال سفارش دقیق در لحظهٔ بازگشایی بازار",
+  "description": "سرخطی‌زن — یادگیری سفارش از ایزی‌تریدر و تکرار آن در لحظهٔ بازگشایی",
   "main": "server.js",
   "type": "commonjs",
   "engines": {
@@ -10,7 +10,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check lib/store.js && node --check lib/order.js && node --check lib/engine.js && node --check public/app.js",
-    "test": "node test/run.js"
+    "test": "node test/run.js",
+    "test:e2e": "node test/e2e.js",
+    "check": "node --check server.js"
   }
 }

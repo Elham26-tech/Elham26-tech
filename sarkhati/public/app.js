@@ -1,20 +1,18 @@
 'use strict';
 
-// --- باگ ۱ (سمت رابط کاربری) -------------------------------------------
-// رابط هیچ چیزی را در localStorage نگه نمی‌دارد؛ تنها منبع حقیقت سرور است
-// و سرور هم وضعیت جلسه را با کلید روز معاملاتی نگه می‌دارد. بنابراین باز
-// کردن دوبارهٔ برنامه، وضعیت جلسهٔ قبل را احیا نمی‌کند.
+// --- باگ ۱ (سمت رابط) --------------------------------------------------
+// رابط هیچ چیزی در localStorage نگه نمی‌دارد؛ تنها منبع حقیقت سرور است و
+// سرور هم وضعیت جلسه را با کلید روز معاملاتی ذخیره می‌کند. پس باز کردن
+// دوبارهٔ برنامه وضعیت اجرای قبلی را احیا نمی‌کند.
 // -----------------------------------------------------------------------
 
 const FIELDS = [
-  'baseUrl', 'orderPath', 'token', 'isinOrSymbol', 'side', 'quantity', 'price',
-  'minQuantity', 'maxQuantity', 'priceStep', 'targetTime', 'preArmSeconds',
-  'sendRate', 'parallel', 'stopAfterSeconds', 'maxAttempts', 'sideFormat',
+  'easyTraderUrl', 'symbol', 'quantity', 'price', 'targetTime', 'preArmSeconds',
+  'sendRate', 'parallel', 'stopAfterSeconds', 'maxAttempts',
 ];
 
 const NUMERIC = new Set([
-  'quantity', 'price', 'minQuantity', 'maxQuantity', 'priceStep',
-  'preArmSeconds', 'sendRate', 'parallel', 'stopAfterSeconds', 'maxAttempts',
+  'quantity', 'price', 'preArmSeconds', 'sendRate', 'parallel', 'stopAfterSeconds', 'maxAttempts',
 ]);
 
 const FA_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
@@ -46,11 +44,7 @@ function collectSettings() {
     const el = $(key);
     if (!el) continue;
     const raw = el.value.trim();
-    if (NUMERIC.has(key)) {
-      patch[key] = raw === '' ? null : Number(raw);
-    } else {
-      patch[key] = raw;
-    }
+    patch[key] = NUMERIC.has(key) ? (raw === '' ? null : Number(raw)) : raw;
   }
   return patch;
 }
@@ -61,34 +55,37 @@ function scheduleSave() {
   saveTimer = setTimeout(() => {
     api('/api/settings', { method: 'PUT', body: collectSettings() })
       .then(render)
-      .catch((err) => appendLog({ at: new Date().toISOString(), level: 'error', message: err.message }));
+      .catch(showError);
   }, 400);
+}
+
+function showError(err) {
+  appendLog({ at: new Date().toISOString(), level: 'error', message: err.message });
 }
 
 function fillSettings(settings) {
   for (const key of FIELDS) {
     const el = $(key);
     if (!el || el === document.activeElement) continue;
-    const value = settings[key];
-    el.value = value == null ? '' : String(value);
+    el.value = settings[key] == null ? '' : String(settings[key]);
   }
   $('prearm-echo').textContent = fa(settings.preArmSeconds ?? 0);
 }
 
 function appendLog(entry) {
   const box = $('log');
-  const stuck = box.scrollTop + box.clientHeight >= box.scrollHeight - 12;
-  const p = document.createElement('p');
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 12;
+  const line = document.createElement('p');
   const time = document.createElement('span');
   time.className = 't';
   time.textContent = clockText(entry.at);
   const text = document.createElement('span');
   text.className = entry.level;
   text.textContent = entry.message;
-  p.append(time, text);
-  box.append(p);
+  line.append(time, text);
+  box.append(line);
   while (box.childElementCount > 400) box.removeChild(box.firstChild);
-  if (stuck) box.scrollTop = box.scrollHeight;
+  if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
 function renderLog(log) {
@@ -107,17 +104,30 @@ function render(status) {
     : 'ساعت همگام نشده';
 
   const s = status.session;
+  const r = status.recipe;
+
   $('st-day').textContent = fa(status.tradingDay);
+  $('st-browser').textContent = status.browserConnected ? 'وصل' : 'وصل نیست';
   $('st-state').textContent = s.firing ? 'در حال شلیک'
     : s.armed ? 'مسلح'
+    : s.learning ? 'در حال یادگیری'
     : s.finished ? 'پایان‌یافته'
     : 'آماده';
   $('st-start').textContent = clockText(status.fireStartAt);
   $('st-attempts').textContent = fa(s.attempts);
   $('st-accepted').textContent = fa(s.accepted);
-  $('st-learned').textContent = status.learned.sideFormat || '—';
 
-  $('btn-arm').disabled = s.armed || s.firing;
+  $('learn-box').classList.toggle('ready', Boolean(r));
+  $('learn-state').textContent = r
+    ? 'سفارش یاد گرفته شد ✓'
+    : s.learning ? 'در انتظار سفارش دستی…' : 'یادگیری خاموش است';
+  $('learn-detail').textContent = r ? r.label : '—';
+  $('recipe-box').textContent = r
+    ? `${r.method} ${r.url}\nفیلدها: ${r.fields.join('، ')}\nمقدار نوع سفارش: ${r.side}\nزمان یادگیری: ${new Date(r.learnedAt).toLocaleString('fa-IR')}`
+    : 'هنوز سفارشی یاد گرفته نشده.';
+
+  $('btn-arm').disabled = s.armed || s.firing || !r;
+  $('btn-fire').disabled = !r;
   $('btn-disarm').disabled = !s.armed && !s.firing;
 
   if (s.log.length !== lastLogLength) {
@@ -135,9 +145,8 @@ function bindAction(id, path, body) {
       const result = await api(path, { method: 'POST', body });
       render(result.status || result);
     } catch (err) {
-      appendLog({ at: new Date().toISOString(), level: 'error', message: err.message });
+      showError(err);
     } finally {
-      button.disabled = false;
       refresh();
     }
   });
@@ -156,6 +165,8 @@ for (const key of FIELDS) {
   if (el) el.addEventListener('input', scheduleSave);
 }
 
+bindAction('btn-open', '/api/open-easytrader');
+bindAction('btn-learn', '/api/learn', { on: true });
 bindAction('btn-arm', '/api/arm');
 bindAction('btn-disarm', '/api/disarm');
 bindAction('btn-fire', '/api/fire');

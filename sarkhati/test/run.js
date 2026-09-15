@@ -9,13 +9,28 @@ const path = require('path');
 process.env.SARKHATI_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'sarkhati-test-'));
 
 const store = require('../lib/store');
-const order = require('../lib/order');
+const recipe = require('../lib/recipe');
 const { Engine } = require('../lib/engine');
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
-// --- باگ ۱: حافظهٔ جلسه نباید از روز قبل بماند ---
+const SAMPLE_REQUEST = {
+  method: 'POST',
+  url: 'https://easy.broker.ir/api/Order/Create',
+  headers: {
+    'content-type': 'application/json',
+    authorization: 'Bearer abc123',
+    host: 'easy.broker.ir',
+    'content-length': '120',
+    cookie: 'session=xyz',
+  },
+  postData: JSON.stringify({
+    order: { isin: 'IRO1FOLD0001', side: 'Buy', quantity: 100, price: 25000, validity: 'Day' },
+  }),
+};
+
+// --- باگ ۱: حافظهٔ جلسه نباید از اجرای قبلی بماند ---
 test('جلسهٔ روز گذشته موقع بارگذاری دور ریخته می‌شود', () => {
   const stale = store.freshSession('2000-01-01');
   stale.attempts = 99;
@@ -28,78 +43,91 @@ test('جلسهٔ روز گذشته موقع بارگذاری دور ریخته �
   assert.strictEqual(loaded.armed, false);
 });
 
-test('جلسهٔ همین روز حفظ می‌شود ولی «مسلح» به ارث نمی‌رسد', () => {
+test('جلسهٔ همین روز حفظ می‌شود ولی مسلح/یادگیری به ارث نمی‌رسد', () => {
   const today = store.freshSession();
-  today.attempts = 7;
-  today.armed = true;
-  today.firing = true;
+  Object.assign(today, { attempts: 7, armed: true, firing: true, learning: true });
   store.saveSession(today);
 
   const loaded = store.loadSession();
   assert.strictEqual(loaded.attempts, 7);
   assert.strictEqual(loaded.armed, false);
   assert.strictEqual(loaded.firing, false);
+  assert.strictEqual(loaded.learning, false);
 });
 
-test('تنظیمات ماندگار جدا از جلسه باقی می‌ماند', () => {
-  store.saveSettings({ isinOrSymbol: 'IRO1FOLD0001', preArmSeconds: 45 });
+test('تنظیمات و سفارش یادگرفته‌شده مستقل از جلسه باقی می‌مانند', () => {
+  store.saveSettings({ symbol: 'IRO1FOLD0001', preArmSeconds: 45 });
+  store.saveRecipe(recipe.fromRequest(SAMPLE_REQUEST, { status: 200 }));
   store.resetSession();
-  const settings = store.loadSettings();
-  assert.strictEqual(settings.isinOrSymbol, 'IRO1FOLD0001');
-  assert.strictEqual(settings.preArmSeconds, 45);
+
+  assert.strictEqual(store.loadSettings().symbol, 'IRO1FOLD0001');
+  assert.strictEqual(store.loadSettings().preArmSeconds, 45);
+  assert.ok(store.loadLearned().recipe, 'سفارش یادگرفته‌شده باید بماند');
 });
 
-// --- باگ ۲: قالب فیلد Side ---
-test('نوع سفارش از هر نوشتاری یکدست می‌شود', () => {
-  for (const raw of ['buy', 'BUY', ' Buy ', 'خرید', 1, '1']) {
-    assert.strictEqual(order.canonicalSide(raw), 'buy', String(raw));
+// --- باگ ۲: سفارش از روی درخواست واقعی یاد گرفته می‌شود ---
+test('درخواست ثبت سفارش تشخیص داده می‌شود', () => {
+  assert.strictEqual(recipe.looksLikeOrder(SAMPLE_REQUEST), true);
+  assert.strictEqual(recipe.looksLikeOrder({ method: 'GET', url: '/api/Order' }), false);
+  assert.strictEqual(
+    recipe.looksLikeOrder({ method: 'POST', url: '/api/Watchlist', postData: '{"x":1}' }),
+    false,
+  );
+});
+
+test('فیلدهای سفارش، حتی تودرتو، نقشه‌برداری می‌شوند', () => {
+  const learned = recipe.fromRequest(SAMPLE_REQUEST, { status: 200 });
+  assert.deepStrictEqual(learned.fields.side.path, ['order', 'side']);
+  assert.strictEqual(learned.fields.side.sample, 'Buy');
+  assert.deepStrictEqual(learned.fields.quantity.path, ['order', 'quantity']);
+  assert.strictEqual(learned.fields.price.sample, 25000);
+  assert.strictEqual(learned.fields.symbol.sample, 'IRO1FOLD0001');
+});
+
+test('هدرهای ناپایدار در دستور ذخیره نمی‌شوند', () => {
+  const learned = recipe.fromRequest(SAMPLE_REQUEST, { status: 200 });
+  assert.strictEqual(learned.headers.authorization, 'Bearer abc123');
+  for (const dropped of ['host', 'content-length', 'cookie']) {
+    assert.ok(!(dropped in learned.headers), `${dropped} نباید ذخیره شود`);
   }
-  for (const raw of ['sell', 'فروش', 2, '2']) {
-    assert.strictEqual(order.canonicalSide(raw), 'sell', String(raw));
-  }
-  assert.strictEqual(order.canonicalSide(''), null);
-  assert.strictEqual(order.canonicalSide(undefined), null);
 });
 
-test('سفارش بدون نوع/نماد/تعداد اصلاً ساخته نمی‌شود', () => {
-  const built = order.buildOrder({ side: '', isinOrSymbol: '', quantity: 0, price: 0 }, 'numeric');
-  assert.strictEqual(built.ok, false);
-  assert.strictEqual(built.errors.length, 4);
+test('مقدار Side دست‌نخورده می‌ماند و فقط تعداد/قیمت عوض می‌شود', () => {
+  const learned = recipe.fromRequest(SAMPLE_REQUEST, { status: 200 });
+  const built = recipe.build(learned, { quantity: 500, price: 26000 });
+  const body = JSON.parse(built.body);
+
+  assert.strictEqual(body.order.side, 'Buy', 'Side باید همانی بماند که کارگزاری پذیرفته');
+  assert.strictEqual(body.order.quantity, 500);
+  assert.strictEqual(body.order.price, 26000);
+  assert.strictEqual(body.order.validity, 'Day');
+  assert.strictEqual(built.url, SAMPLE_REQUEST.url);
 });
 
-test('هر قالب Side مقدار درست خودش را می‌سازد', () => {
-  const base = { side: 'buy', isinOrSymbol: 'X', quantity: 10, price: 1000, priceStep: 1 };
-  assert.strictEqual(order.buildOrder(base, 'numeric').body.side, 1);
-  assert.strictEqual(order.buildOrder(base, 'pascal').body.side, 'Buy');
-  assert.strictEqual(order.buildOrder(base, 'lower').body.side, 'buy');
-  assert.strictEqual(order.buildOrder(base, 'upper').body.side, 'BUY');
+test('نوعِ اصلی فیلد موقع جایگزینی حفظ می‌شود', () => {
+  const stringQty = {
+    ...SAMPLE_REQUEST,
+    postData: JSON.stringify({ isin: 'X', side: 1, quantity: '100', price: '2500' }),
+  };
+  const built = recipe.build(recipe.fromRequest(stringQty), { quantity: 7, price: 30 });
+  const body = JSON.parse(built.body);
+  assert.strictEqual(body.quantity, '7');
+  assert.strictEqual(body.price, '30');
+  assert.strictEqual(body.side, 1);
 });
 
-test('قالب یادگرفته‌شده اول امتحان می‌شود', () => {
-  const candidates = order.sideFormatCandidates({ sideFormat: 'auto' }, { sideFormat: 'pascal' });
-  assert.strictEqual(candidates[0], 'pascal');
-  assert.strictEqual(candidates.length, order.FORMAT_ORDER.length);
-
-  const pinned = order.sideFormatCandidates({ sideFormat: 'upper' }, { sideFormat: 'pascal' });
-  assert.deepStrictEqual(pinned, ['upper']);
+test('بدون سفارش یادگرفته‌شده، اعتبارسنجی جلوی کار را می‌گیرد', () => {
+  const check = recipe.validate(null, {});
+  assert.strictEqual(check.ok, false);
+  assert.ok(check.problems[0].includes('یاد گرفته'));
+  assert.throws(() => recipe.build(null), /یاد گرفته/);
 });
 
-test('خطای ۴۰۰ مربوط به Side تشخیص داده می‌شود', () => {
-  const body = '{"errors":{"Order.Side":["سفارش معتبر نمیباشد"]}}';
-  assert.strictEqual(order.isSideValidationError(400, body), true);
-  assert.strictEqual(order.isSideValidationError(400, 'قیمت نامعتبر'), false);
-  assert.strictEqual(order.isSideValidationError(503, body), false);
-});
-
-test('تعداد داخل بازه و قیمت روی گام قیمت می‌نشیند', () => {
-  const r = order.normalizeQuantityAndPrice({
-    quantity: 5, minQuantity: 10, maxQuantity: 100, price: 1007, priceStep: 10,
-  });
-  assert.strictEqual(r.quantity, 10);
-  assert.strictEqual(r.price, 1010);
-
-  const capped = order.normalizeQuantityAndPrice({ quantity: 500, maxQuantity: 100, price: 5, priceStep: 1 });
-  assert.strictEqual(capped.quantity, 100);
+test('تعداد یا قیمت نامعتبر رد می‌شود', () => {
+  const learned = recipe.fromRequest(SAMPLE_REQUEST, { status: 200 });
+  assert.strictEqual(recipe.validate(learned, { quantity: 0 }).ok, false);
+  assert.strictEqual(recipe.validate(learned, { price: -5 }).ok, false);
+  assert.strictEqual(recipe.validate(learned, { quantity: 10, price: 100 }).ok, true);
 });
 
 // --- باگ ۳: شروع زودتر از ساعت هدف ---
@@ -107,36 +135,73 @@ test('شلیک دقیقاً preArmSeconds قبل از ساعت هدف شروع �
   const engine = new Engine();
   engine.updateSettings({ targetTime: '08:45:00', preArmSeconds: 60, clockOffsetMs: 0 });
   const now = engine.now();
-  const gap = engine.targetTimestamp(now) - engine.fireStartTimestamp(now);
-  assert.strictEqual(gap, 60000);
+  assert.strictEqual(engine.targetTimestamp(now) - engine.fireStartTimestamp(now), 60000);
+
+  engine.updateSettings({ preArmSeconds: 90 });
+  const later = engine.now();
+  assert.strictEqual(engine.targetTimestamp(later) - engine.fireStartTimestamp(later), 90000);
 });
 
-test('اختلاف ساعت سرور در محاسبهٔ لحظهٔ شلیک لحاظ می‌شود', () => {
+test('اختلاف ساعت سرور در محاسبه لحاظ می‌شود', () => {
   const engine = new Engine();
-  engine.updateSettings({ targetTime: '08:45:00', preArmSeconds: 0, clockOffsetMs: 0 });
-  const withoutOffset = engine.now().getTime();
+  engine.updateSettings({ clockOffsetMs: 0 });
+  const plain = engine.now().getTime();
   engine.updateSettings({ clockOffsetMs: 2500 });
-  const withOffset = engine.now().getTime();
-  assert.ok(withOffset - withoutOffset >= 2400, 'ساعت باید با offset جلو برود');
+  assert.ok(engine.now().getTime() - plain >= 2400);
+});
+
+test('بدون مرورگرِ وصل، مسلح‌سازی انجام نمی‌شود', () => {
+  const engine = new Engine();
+  const status = engine.arm();
+  assert.strictEqual(status.session.armed, false);
+  assert.ok(status.session.log.some((l) => l.message.includes('مسلح نشد')));
 });
 
 test('پاک‌کردن حافظه، جلسه را صفر و تنظیمات را حفظ می‌کند', () => {
   const engine = new Engine();
-  engine.updateSettings({ isinOrSymbol: 'IRO1FOLD0001' });
+  engine.updateSettings({ symbol: 'IRO1FOLD0001' });
   engine.session.attempts = 12;
   const status = engine.resetMemory({ session: true, learned: true });
   assert.strictEqual(status.session.attempts, 0);
-  assert.strictEqual(status.learned.sideFormat, null);
-  assert.strictEqual(status.settings.isinOrSymbol, 'IRO1FOLD0001');
+  assert.strictEqual(status.recipe, null);
+  assert.strictEqual(status.settings.symbol, 'IRO1FOLD0001');
 });
 
-test('بررسی، نبودِ آدرس و توکن را گزارش می‌کند', () => {
+test('سفارش دستیِ موفق در مرورگر، یاد گرفته می‌شود', () => {
   const engine = new Engine();
-  engine.updateSettings({ baseUrl: '', token: '', isinOrSymbol: 'X', quantity: 1, price: 10, side: 'buy' });
-  const result = engine.validate();
-  assert.strictEqual(result.ok, false);
-  assert.ok(result.problems.some((p) => p.includes('آدرس')));
-  assert.ok(result.problems.some((p) => p.includes('توکن')));
+  engine.resetMemory({ session: true, learned: true });
+  engine.session.learning = true;
+
+  engine.onBrowserEvent({
+    method: 'Network.requestWillBeSent',
+    params: { requestId: 'r1', request: SAMPLE_REQUEST },
+  });
+  engine.onBrowserEvent({
+    method: 'Network.responseReceived',
+    params: { requestId: 'r1', response: { status: 200 } },
+  });
+
+  const status = engine.status();
+  assert.ok(status.recipe, 'باید دستور ساخته شود');
+  assert.strictEqual(status.recipe.side, 'Buy');
+  assert.strictEqual(status.session.learning, false, 'بعد از یادگیری باید خاموش شود');
+});
+
+test('سفارش دستیِ ناموفق یاد گرفته نمی‌شود', () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.session.learning = true;
+
+  engine.onBrowserEvent({
+    method: 'Network.requestWillBeSent',
+    params: { requestId: 'r2', request: SAMPLE_REQUEST },
+  });
+  engine.onBrowserEvent({
+    method: 'Network.responseReceived',
+    params: { requestId: 'r2', response: { status: 400 } },
+  });
+
+  assert.strictEqual(engine.status().recipe, null);
 });
 
 let failed = 0;

@@ -160,3 +160,28 @@ button.ghost { color: var(--muted); font-weight: 500; }
 
 details { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
 summary { cursor: pointer; color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+
+.learn {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.learn.ready { border-style: solid; border-color: var(--ok); }
+.learn.ready #learn-state { color: var(--ok); font-weight: 700; }
+.learn .muted { margin: 2px 0 0; }
+
+.recipe {
+  margin: 0 0 10px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  direction: ltr;
+  text-align: left;
+}

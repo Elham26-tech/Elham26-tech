@@ -63,6 +63,14 @@ async function handleApi(req, res, route) {
   if (route === '/api/validate' && req.method === 'POST') {
     return sendJson(res, 200, { ...engine.validate(), status: engine.status() });
   }
+  if (route === '/api/open-easytrader' && req.method === 'POST') {
+    const result = await engine.openEasyTrader();
+    return sendJson(res, 200, { ...result, status: engine.status() });
+  }
+  if (route === '/api/learn' && req.method === 'POST') {
+    const body = await readBody(req);
+    return sendJson(res, 200, engine.setLearning(body.on !== false));
+  }
   if (route === '/api/sync-clock' && req.method === 'POST') {
     const result = await engine.syncClock();
     return sendJson(res, 200, { ...result, status: engine.status() });
@@ -103,7 +111,14 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  process.stdout.write(`سرخطی‌زن روی http://${HOST}:${PORT} در حال اجراست\n`);
+  const link = `http://${HOST}:${PORT}`;
+  process.stdout.write('\n');
+  process.stdout.write('  ==================================================\n');
+  process.stdout.write('    سرخطی‌زن در حال اجراست\n');
+  process.stdout.write('  ==================================================\n\n');
+  process.stdout.write(`    ${link}\n\n`);
+  process.stdout.write('    روی لینک بالا کلیک کنید (یا در مرورگر باز کنید).\n');
+  process.stdout.write('    برای بستن برنامه این پنجره را ببندید یا Ctrl+C بزنید.\n\n');
 });
 
 function shutdown() {
