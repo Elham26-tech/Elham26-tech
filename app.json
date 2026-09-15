@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "سنگ‌بازار",
+    "slug": "sangbazar",
+    "scheme": "sangbazar",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0A1F3C",
+      "resizeMode": "contain",
+      "image": "./assets/splash-icon.png"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sangbazar.app",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "برای انتخاب تصویر فضای خود در ویژوالایزر به گالری دسترسی لازم است.",
+        "NSCameraUsageDescription": "برای عکس‌برداری از فضا در ویژوالایزر به دوربین دسترسی لازم است."
+      }
+    },
+    "android": {
+      "package": "com.sangbazar.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0A1F3C",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-image-picker",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0A1F3C",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiBaseUrl": "https://api.sangbazar.example/v1"
+    }
+  }
+}
