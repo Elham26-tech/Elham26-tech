@@ -113,12 +113,15 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, HOST, () => {
   const link = `http://${HOST}:${PORT}`;
   process.stdout.write('\n');
+  // این پنجره را cmd ویندوز نشان می‌دهد و فارسی را درست رندر نمی‌کند،
+  // پس پیام‌های همین‌جا عمداً انگلیسی‌اند. رابط اصلی فارسی است.
   process.stdout.write('  ==================================================\n');
-  process.stdout.write('    سرخطی‌زن در حال اجراست\n');
+  process.stdout.write('    SARKHATI is running\n');
   process.stdout.write('  ==================================================\n\n');
   process.stdout.write(`    ${link}\n\n`);
-  process.stdout.write('    روی لینک بالا کلیک کنید (یا در مرورگر باز کنید).\n');
-  process.stdout.write('    برای بستن برنامه این پنجره را ببندید یا Ctrl+C بزنید.\n\n');
+  process.stdout.write('    Ctrl+Click the link above to open the control panel,\n');
+  process.stdout.write('    or copy it into your browser.\n\n');
+  process.stdout.write('    Close this window (or press Ctrl+C) to stop.\n\n');
 });
 
 function shutdown() {
