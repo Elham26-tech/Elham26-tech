@@ -2,11 +2,39 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
-const DATA_DIR = process.env.SARKHATI_DATA_DIR || path.join(__dirname, '..', 'data');
+/**
+ * پوشهٔ داده: کنار خودِ فایل اجرایی. اگر آنجا نوشتنی نبود (اجرا از داخل
+ * فایل فشرده یا پوشهٔ محافظت‌شدهٔ ویندوز)، به پوشهٔ کاربر برمی‌گردیم تا
+ * برنامه به‌جای خطا دادن، کار کند.
+ */
+function pickDataDir() {
+  if (process.env.SARKHATI_DATA_DIR) return process.env.SARKHATI_DATA_DIR;
+
+  const candidates = [];
+  if (process.pkg || require('node:sea').isSea?.()) {
+    candidates.push(path.join(path.dirname(process.execPath), 'sarkhati-data'));
+  } else {
+    candidates.push(path.join(__dirname, '..', 'data'));
+  }
+  candidates.push(path.join(os.homedir(), '.sarkhati'));
+
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.accessSync(dir, fs.constants.W_OK);
+      return dir;
+    } catch { /* بعدی را امتحان کن */ }
+  }
+  return candidates[candidates.length - 1];
+}
+
+const DATA_DIR = pickDataDir();
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 const SESSION_FILE = path.join(DATA_DIR, 'session.json');
 const LEARNED_FILE = path.join(DATA_DIR, 'learned.json');
+const SYMBOLS_FILE = path.join(DATA_DIR, 'symbols.json');
 const PROFILE_DIR = path.join(DATA_DIR, 'chrome-profile');
 
 // --- باگ ۱ -------------------------------------------------------------
@@ -19,7 +47,7 @@ const PROFILE_DIR = path.join(DATA_DIR, 'chrome-profile');
 // -----------------------------------------------------------------------
 
 const DEFAULT_SETTINGS = {
-  easyTraderUrl: 'https://easy.mofidonline.com',
+  easyTraderUrl: 'https://d.easytrader.ir/',
   symbol: '',
   symbolName: '',
   insCode: '',
@@ -37,7 +65,9 @@ const DEFAULT_SETTINGS = {
   clockOffsetMs: 0,
 };
 
-const DEFAULT_LEARNED = { recipe: null, history: [] };
+// endpoints: درخواست‌های «جست‌وجو» و «اطلاعات نماد» که از خود ایزی‌تریدر
+// یاد گرفته می‌شوند تا بشود دربارهٔ نماد دیگری هم از کارگزار پرسید.
+const DEFAULT_LEARNED = { recipe: null, history: [], endpoints: {} };
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
@@ -111,13 +141,31 @@ function loadLearned() {
   return { ...DEFAULT_LEARNED, ...readJson(LEARNED_FILE, {}) };
 }
 
+function saveEndpoint(kind, endpoint) {
+  const current = loadLearned();
+  const next = { ...current, endpoints: { ...current.endpoints, [kind]: endpoint } };
+  writeJson(LEARNED_FILE, next);
+  return next;
+}
+
+function saveSymbols(rows, source) {
+  writeJson(SYMBOLS_FILE, { fetchedAt: new Date().toISOString(), source, rows });
+  return rows;
+}
+
+function loadSymbols() {
+  const saved = readJson(SYMBOLS_FILE, null);
+  if (!saved || !Array.isArray(saved.rows)) return { rows: [], fetchedAt: null, source: null };
+  return saved;
+}
+
 function saveRecipe(recipe) {
   const current = loadLearned();
   const history = [
     { learnedAt: recipe.learnedAt, label: recipe.label, url: recipe.url },
     ...current.history,
   ].slice(0, 10);
-  const next = { recipe, history };
+  const next = { ...current, recipe, history };
   writeJson(LEARNED_FILE, next);
   return next;
 }
@@ -140,5 +188,8 @@ module.exports = {
   resetSession,
   loadLearned,
   saveRecipe,
+  saveEndpoint,
+  saveSymbols,
+  loadSymbols,
   resetLearned,
 };

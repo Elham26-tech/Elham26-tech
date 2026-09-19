@@ -1,0 +1,141 @@
+'use strict';
+
+// یک درخواست یادگرفته‌شده، به‌همراه اینکه کدام پارامترش متغیر است.
+//
+// دانستن نامِ پارامتر مهم است: برای پرسیدن دربارهٔ نماد دیگر، باید دقیقاً
+// همان پارامتر عوض شود، نه چیزی که حدس زده‌ایم.
+
+const ISIN = /^IR[A-Z0-9]{10}$/;
+const ISIN_ANYWHERE = /IR[A-Z0-9]{10}/;
+
+const SEARCH_PARAM_NAME =
+  /^(q|term|query|search|searchterm|keyword|key|value|text|name|symbol|filter|phrase)$/i;
+
+/** عبارتِ جست‌وجوی تایپ‌شده: کوتاه، حرف‌دار، نه عدد خالص و نه ISIN */
+function looksLikeSearchTerm(value) {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed || [...trimmed].length > 12) return false;
+  if (ISIN.test(trimmed)) return false;
+  if (trimmed !== '' && Number.isFinite(Number(trimmed))) return false;
+  if (/^(true|false)$/i.test(trimmed)) return false;
+  return /\p{L}/u.test(trimmed);
+}
+
+function parseJson(body) {
+  try {
+    const parsed = JSON.parse(body);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * از یک درخواستِ دیده‌شده، نقطه‌ای قابل تکرار می‌سازد.
+ * isinMode یعنی دنبال درخواستِ «اطلاعات نماد» بگرد، نه جست‌وجو.
+ */
+function build({ method, url, postData, headers }, { isinMode = false } = {}) {
+  const base = {
+    method: String(method || 'GET').toUpperCase(),
+    url,
+    postData: postData || '',
+    headers: headers || {},
+    param: '',
+    inBody: false,
+    contains: false,
+    sample: '',
+  };
+
+  let parsed;
+  try { parsed = new URL(url); } catch { return null; }
+  const body = parseJson(postData);
+  const matches = (value) => (isinMode ? ISIN.test(String(value).trim()) : looksLikeSearchTerm(value));
+
+  // ۱) پارامتر در خودِ نشانی
+  const named = [...parsed.searchParams.entries()];
+  const byName = named.find(([name, value]) => !isinMode && SEARCH_PARAM_NAME.test(name) && matches(value));
+  const byValue = named.find(([, value]) => matches(value));
+  const hit = byName || byValue;
+  if (hit) return { ...base, param: hit[0], sample: hit[1] };
+
+  // ۲) فیلد در بدنهٔ JSON
+  if (body) {
+    for (const [name, value] of Object.entries(body)) {
+      if (typeof value === 'string' && matches(value)) {
+        return { ...base, param: name, sample: value, inBody: true };
+      }
+    }
+    // ۳) کد نماد داخلِ متنِ یک فیلد (مثل پرس‌وجوی GraphQL)
+    if (isinMode) {
+      for (const [name, value] of Object.entries(body)) {
+        if (typeof value !== 'string') continue;
+        const found = value.match(ISIN_ANYWHERE);
+        if (found) return { ...base, param: name, sample: found[0], inBody: true, contains: true };
+      }
+    }
+  }
+
+  // ۴) کد نماد داخل خودِ مسیر، بدون پارامتر
+  if (isinMode && ISIN_ANYWHERE.test(url)) {
+    const found = url.match(ISIN_ANYWHERE);
+    return { ...base, param: '', sample: found[0] };
+  }
+  return null;
+}
+
+/** همان درخواست را با مقدار تازه می‌سازد */
+function withValue(endpoint, value) {
+  if (!endpoint) return null;
+  const fresh = String(value);
+
+  if (endpoint.contains && endpoint.inBody) {
+    const body = parseJson(endpoint.postData);
+    if (!body || typeof body[endpoint.param] !== 'string') return null;
+    const text = body[endpoint.param];
+    if (!text.includes(endpoint.sample)) return null;
+    body[endpoint.param] = text.split(endpoint.sample).join(fresh);
+    return { ...endpoint, url: endpoint.url, body: JSON.stringify(body) };
+  }
+
+  if (endpoint.inBody) {
+    const body = parseJson(endpoint.postData);
+    if (!body || !(endpoint.param in body)) return null;
+    body[endpoint.param] = fresh;
+    return { ...endpoint, url: endpoint.url, body: JSON.stringify(body) };
+  }
+
+  // بدون پارامتر: کد نماد داخل خودِ مسیر است
+  if (!endpoint.param) {
+    if (!endpoint.sample) return null;
+    return {
+      ...endpoint,
+      url: endpoint.url.split(endpoint.sample).join(fresh),
+      body: endpoint.postData || null,
+    };
+  }
+
+  let parsed;
+  try { parsed = new URL(endpoint.url); } catch { return null; }
+  if (!parsed.searchParams.has(endpoint.param)) return null;
+  parsed.searchParams.set(endpoint.param, fresh);
+  return { ...endpoint, url: parsed.toString(), body: endpoint.postData || null };
+}
+
+/**
+ * هدرهایی که تکرارشان معنا دارد. طول بدنه و هدرهای وابسته به اتصال را
+ * مرورگر خودش می‌سازد؛ بقیه — از جمله هدرهای اختصاصی کارگزار — باید بمانند.
+ */
+const DROP_HEADERS = new Set([
+  'host', 'content-length', 'connection', 'accept-encoding', 'cookie',
+]);
+
+function replayableHeaders(headers = {}) {
+  const out = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (DROP_HEADERS.has(name.toLowerCase()) || name.startsWith(':') || !value) continue;
+    out[name] = value;
+  }
+  return out;
+}
+
+module.exports = { ISIN, looksLikeSearchTerm, build, withValue, replayableHeaders };

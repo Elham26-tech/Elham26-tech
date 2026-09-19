@@ -42,15 +42,32 @@ function readBody(req) {
   });
 }
 
+// وقتی برنامه به‌صورت فایل اجرایی تک‌فایله ساخته شده، صفحه و اسکریپت‌ها
+// داخل خودِ فایل‌اند و از آنجا خوانده می‌شوند؛ در حالت عادی از روی دیسک.
+const sea = require('node:sea');
+const inExecutable = typeof sea.isSea === 'function' && sea.isSea();
+
+function readAsset(name) {
+  if (inExecutable) {
+    try { return sea.getAsset(name, 'utf8'); } catch { return null; }
+  }
+  const file = path.join(PUBLIC_DIR, name);
+  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file)) return null;
+  return fs.readFileSync(file, 'utf8');
+}
+
 function serveStatic(req, res) {
   const rel = req.url === '/' ? 'index.html' : req.url.replace(/^\/+/, '').split('?')[0];
-  const file = path.join(PUBLIC_DIR, rel);
-  if (!file.startsWith(PUBLIC_DIR) || !fs.existsSync(file)) {
+  const body = readAsset(rel);
+  if (body === null) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     return res.end('یافت نشد');
   }
-  res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
-  return fs.createReadStream(file).pipe(res);
+  res.writeHead(200, {
+    'content-type': MIME[path.extname(rel)] || 'application/octet-stream',
+    'content-length': Buffer.byteLength(body),
+  });
+  return res.end(body);
 }
 
 async function handleApi(req, res, route) {
@@ -94,8 +111,25 @@ async function handleApi(req, res, route) {
   if (route === '/api/fire' && req.method === 'POST') {
     return sendJson(res, 200, await engine.fireNow());
   }
-  if (route === '/api/diagnostics' && req.method === 'POST') {
-    return sendJson(res, 200, { ...engine.exportDiagnostics(), status: engine.status() });
+  // دانلود مستقیم گزارش تشخیصی: مرورگر فایل را ذخیره می‌کند، بدون اینکه
+  // کاربر لازم باشد دنبال مسیر پوشهٔ data بگردد.
+  if (route === '/api/diagnostics' && (req.method === 'GET' || req.method === 'POST')) {
+    const report = engine.exportDiagnostics();
+    const body = JSON.stringify(report.report, null, 2);
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': 'attachment; filename="sarkhati-diagnostics.json"',
+      'content-length': Buffer.byteLength(body),
+    });
+    return res.end(body);
+  }
+  if (route === '/api/symbols/refresh' && req.method === 'POST') {
+    try {
+      const rows = await engine.ensureSymbols({ force: true });
+      return sendJson(res, 200, { ok: true, total: rows.length, status: engine.status() });
+    } catch (err) {
+      return sendJson(res, 200, { ok: false, error: err.message, status: engine.status() });
+    }
   }
   if (route === '/api/reset' && req.method === 'POST') {
     const body = await readBody(req);

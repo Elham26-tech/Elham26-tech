@@ -1,210 +1,193 @@
 'use strict';
 
-// جست‌وجوی نماد و گرفتن سقف/کف مجاز از tsetmc.com
+// فهرست کل نمادهای بازار را یک‌بار از TSETMC می‌گیرد تا جست‌وجو محلی و آنی
+// باشد — بدون رفت‌وبرگشت شبکه به ازای هر حرفی که تایپ می‌شود.
 //
-// نکتهٔ طراحی: نام فیلدهای TSETMC گاهی عوض می‌شود، پس هیچ‌جا به نام یا
-// شمارهٔ ثابتِ فیلد تکیه نمی‌کنیم. مقدارها با الگوی نام و با منطق «بزرگ‌ترین
-// و کوچک‌ترین عددِ شیءِ آستانه» پیدا می‌شوند، و پاسخ خام هم نگه داشته
-// می‌شود تا اگر چیزی نخواند بشود دیدش.
-
-const CDN = 'https://cdn.tsetmc.com/api';
-const LEGACY = 'http://www.tsetmc.com/tsev2/data';
-
-const HEADERS = {
-  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-  accept: 'application/json, text/plain, */*',
-};
+// اینجا فقط نام و کد نماد و قیمت‌های تابلو گرفته می‌شود. سقف و کف مجاز از
+// خودِ کارگزار می‌آید (lib/limits.js)، چون مرجع واقعی همان است.
 
 const ISIN = /^IR[A-Z0-9]{10}$/;
+const INDEX_ISIN = /^IRX/; // شاخص‌ها، نه سهم
 
-async function getText(url, timeoutMs = 8000) {
+// نشانی‌ها به ترتیب امتحان می‌شوند. ترتیب از روی اندازه‌گیری واقعی روی
+// اینترنت ایران است: cdn کامل‌ترین پاسخ را می‌دهد و old هم معمولاً باز است.
+const DEFAULT_URLS = [
+  'https://cdn.tsetmc.com/api/ClosingPrice/GetMarketWatch?market=0'
+    + '&paperTypes[0]=1&paperTypes[1]=2&paperTypes[2]=3&paperTypes[3]=4'
+    + '&paperTypes[4]=5&paperTypes[5]=6&paperTypes[6]=7&paperTypes[7]=8'
+    + '&paperTypes[8]=9&showTraded=false&withBestLimits=false&hEven=0&RefID=0',
+  'https://old.tsetmc.com/tsev2/data/MarketWatchPlus.aspx?h=0&r=0',
+  'https://main.tsetmc.com/tsev2/data/MarketWatchPlus.aspx?h=0&r=0',
+  'https://tsetmc.ir/tsev2/data/MarketWatchPlus.aspx?h=0&r=0',
+  'http://www.tsetmc.com/tsev2/data/MarketWatchPlus.aspx?h=0&r=0',
+];
+
+const HEADERS = {
+  'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    + ' (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+  accept: 'application/json, text/plain, */*',
+  'accept-language': 'fa,en;q=0.8',
+};
+
+const LAST_KEY = /^(pdrcotval|lasttradedprice|last|pl|pdr)$/i;
+const CLOSING_KEY = /^(pclosing|closingprice|pc|closing)$/i;
+const YESTERDAY_KEY = /^(priceyesterday|pricey|py|yesterdayprice|pcy)$/i;
+const SYMBOL_KEY = /^(lval18afc|lval18|symbol|sym)$/i;
+const NAME_KEY = /^(lval30|name|title|fullname)$/i;
+const INSCODE_KEY = /^(inscode|code|id)$/i;
+
+async function fetchText(url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { headers: HEADERS, signal: controller.signal });
-    const text = await res.text();
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return text;
+    return await res.text();
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function getJson(url, timeoutMs) {
-  return JSON.parse(await getText(url, timeoutMs));
+function toNumber(value) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string') return null;
+  const number = Number(value.trim());
+  return Number.isFinite(number) ? number : null;
 }
 
-// ---- جست‌وجو ----------------------------------------------------------
+/** یک شیء JSON را به یک ردیف نماد تبدیل می‌کند، اگر ISIN داشته باشد */
+function rowFromObject(object) {
+  let isin = null;
+  let symbol = '';
+  let name = '';
+  const price = { last: null, closing: null, yesterday: null };
+  let insCode = '';
 
-/** پاسخ JSON جست‌وجوی TSETMC را به فهرست نماد تبدیل می‌کند */
-function parseSearchJson(json) {
-  const rows = (json && (json.instrumentSearch || json.InstrumentSearch)) || [];
-  return rows.map((row) => ({
-    symbol: String(row.lVal18AFC || row.LVal18AFC || '').trim(),
-    name: String(row.lVal30 || row.LVal30 || '').trim(),
-    insCode: String(row.insCode || row.InsCode || '').trim(),
-    active: Number(row.lastDate || row.LastDate || 0) > 0,
-  })).filter((row) => row.symbol && row.insCode);
-}
-
-/** پاسخ متنیِ سرویس قدیمی: رکوردها با «؛» و فیلدها با «،» جدا می‌شوند */
-function parseSearchLegacy(text) {
-  return String(text).split(';')
-    .map((record) => record.split(','))
-    .filter((parts) => parts.length >= 3 && parts[0] && parts[2])
-    .map((parts) => ({
-      symbol: parts[0].trim(),
-      name: (parts[1] || '').trim(),
-      insCode: parts[2].trim(),
-      active: parts[7] !== '0',
-    }));
-}
-
-async function search(query) {
-  const q = encodeURIComponent(String(query || '').trim());
-  if (!q) return { rows: [], source: null };
-  try {
-    const json = await getJson(`${CDN}/Instrument/GetInstrumentSearch/${q}`);
-    const rows = parseSearchJson(json);
-    if (rows.length) return { rows, source: 'cdn' };
-  } catch { /* سرویس قدیمی را امتحان می‌کنیم */ }
-
-  const text = await getText(`${LEGACY}/search.aspx?skey=${q}`);
-  return { rows: parseSearchLegacy(text), source: 'legacy' };
-}
-
-// ---- سقف و کف --------------------------------------------------------
-
-/** همهٔ زوج‌های کلید/مقدار یک شیء تودرتو */
-function flatten(value, prefix = '', out = {}) {
-  if (value === null || typeof value !== 'object') {
-    out[prefix] = value;
-    return out;
-  }
-  for (const [key, item] of Object.entries(value)) {
-    flatten(item, prefix ? `${prefix}.${key}` : key, out);
-  }
-  return out;
-}
-
-/** اولین مقدار عددیِ مثبت که کلیدش با الگو می‌خواند */
-function pickNumber(flat, pattern) {
-  for (const [key, value] of Object.entries(flat)) {
-    const leaf = key.split('.').pop();
-    if (!pattern.test(leaf)) continue;
-    const num = Number(value);
-    if (Number.isFinite(num) && num > 0) return num;
-  }
-  return null;
-}
-
-function pickIsin(flat) {
-  for (const value of Object.values(flat)) {
-    if (typeof value === 'string' && ISIN.test(value.trim())) return value.trim();
-  }
-  return null;
-}
-
-/**
- * از شیء آستانهٔ TSETMC، سقف و کف را بدون تکیه بر نام فیلد درمی‌آورد:
- * شناسه‌ها (insCode و تاریخ) کنار گذاشته می‌شوند و از باقی اعداد،
- * بزرگ‌ترین = سقف و کوچک‌ترین = کف.
- */
-function thresholdsFromObject(obj) {
-  const skip = /(inscode|deven|dateen|idn|id)$/i;
-  const numbers = Object.entries(obj || {})
-    .filter(([key, value]) => !skip.test(key) && Number.isFinite(Number(value)) && Number(value) > 0)
-    .map(([, value]) => Number(value));
-  if (numbers.length < 2) return { max: null, min: null };
-  return { max: Math.max(...numbers), min: Math.min(...numbers) };
-}
-
-function todayStamp(now = new Date()) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
-}
-
-/**
- * سقف/کف قیمت مجاز، و در صورت وجود حداقل/حداکثر تعداد هر سفارش.
- * اگر TSETMC آستانه نداد، از قیمت پایانی دیروز و درصد دامنه تخمین می‌زند
- * و نتیجه را «تخمینی» علامت می‌گذارد.
- */
-async function limits(insCode, { rangePercent = 5 } = {}) {
-  const code = String(insCode || '').trim();
-  if (!code) throw new Error('کد نماد (insCode) لازم است.');
-
-  const raw = {};
-  let priceMax = null;
-  let priceMin = null;
-  let estimated = false;
-
-  try {
-    const json = await getJson(`${CDN}/Instrument/GetStaticThreshold/${code}/${todayStamp()}`);
-    raw.threshold = json;
-    const list = json.staticThreshold || json.StaticThreshold || [];
-    const found = list.map(thresholdsFromObject).find((t) => t.max && t.min);
-    if (found) {
-      priceMax = found.max;
-      priceMin = found.min;
+  for (const [key, value] of Object.entries(object)) {
+    if (typeof value === 'string' && ISIN.test(value.trim())) {
+      if (!isin) isin = value.trim();
+      continue;
     }
-  } catch (err) {
-    raw.thresholdError = err.message;
+    if (typeof value === 'string') {
+      if (!symbol && SYMBOL_KEY.test(key)) symbol = value.trim();
+      else if (!name && NAME_KEY.test(key)) name = value.trim();
+      else if (!insCode && INSCODE_KEY.test(key)) insCode = value.trim();
+      continue;
+    }
+    const number = toNumber(value);
+    if (number === null) continue;
+    if (!insCode && INSCODE_KEY.test(key)) insCode = String(value);
+    if (LAST_KEY.test(key)) price.last = number;
+    else if (CLOSING_KEY.test(key)) price.closing = number;
+    else if (YESTERDAY_KEY.test(key)) price.yesterday = number;
   }
 
-  let info = {};
-  try {
-    info = await getJson(`${CDN}/Instrument/GetInstrumentInfo/${code}`);
-    raw.info = info;
-  } catch (err) {
-    raw.infoError = err.message;
-  }
-
-  let closing = {};
-  try {
-    closing = await getJson(`${CDN}/ClosingPrice/GetClosingPriceInfo/${code}`);
-    raw.closing = closing;
-  } catch (err) {
-    raw.closingError = err.message;
-  }
-
-  const flatInfo = flatten(info);
-  const flatClosing = flatten(closing);
-
-  const yesterday = pickNumber(flatClosing, /^(priceYesterday|pricey|pClosing)$/i)
-    || pickNumber(flatInfo, /^(priceYesterday|pricey)$/i);
-
-  if ((!priceMax || !priceMin) && yesterday) {
-    const span = (yesterday * rangePercent) / 100;
-    priceMax = Math.round(yesterday + span);
-    priceMin = Math.round(yesterday - span);
-    estimated = true;
-  }
-
-  return {
-    insCode: code,
-    isin: pickIsin(flatInfo),
-    symbol: (info.instrumentInfo && info.instrumentInfo.lVal18AFC) || null,
-    name: (info.instrumentInfo && info.instrumentInfo.lVal30) || null,
-    priceMax,
-    priceMin,
-    estimated,
-    yesterdayPrice: yesterday || null,
-    lastPrice: pickNumber(flatClosing, /^(pDrCotVal|lastPrice)$/i),
-    maxQuantity: pickNumber(flatInfo, /^(maxOrderQty|maxOrderQuantity|maxQty)$/i),
-    minQuantity: pickNumber(flatInfo, /^(minOrderQty|minOrderQuantity|minQty)$/i),
-    baseVolume: pickNumber(flatInfo, /^(baseVol|baseVolume)$/i),
-    raw,
-  };
+  if (!isin || !symbol || INDEX_ISIN.test(isin)) return null;
+  return { isin, symbol, name, insCode, ...price };
 }
 
-module.exports = {
-  search,
-  limits,
-  parseSearchJson,
-  parseSearchLegacy,
-  thresholdsFromObject,
-  flatten,
-  pickNumber,
-  pickIsin,
-  todayStamp,
-};
+/** شکل تازهٔ پاسخ: JSON تودرتو */
+function parseJson(body) {
+  let decoded;
+  try { decoded = JSON.parse(body); } catch { return []; }
+
+  const rows = [];
+  const seen = new Set();
+  const walk = (value) => {
+    if (Array.isArray(value)) return value.forEach(walk);
+    if (!value || typeof value !== 'object') return undefined;
+    const row = rowFromObject(value);
+    if (row && !seen.has(row.isin)) {
+      seen.add(row.isin);
+      rows.push(row);
+    }
+    return Object.values(value).forEach(walk);
+  };
+  walk(decoded);
+  return rows;
+}
+
+/**
+ * شکل قدیمی و متنی. به‌جای تکیه بر شمارهٔ ستون، اول ISIN را با الگو پیدا
+ * می‌کنیم و از روی آن جلو می‌رویم؛ اگر روزی ستونی اضافه شود، نمی‌شکند.
+ */
+function parseText(body) {
+  const rows = [];
+  const seen = new Set();
+
+  for (const section of String(body).split('@')) {
+    for (const record of section.split(';')) {
+      const fields = record.split(',');
+      if (fields.length < 5) continue;
+
+      const isinAt = fields.findIndex((field) => ISIN.test(field.trim()));
+      if (isinAt < 0 || isinAt + 2 >= fields.length) continue;
+
+      const isin = fields[isinAt].trim();
+      const symbol = fields[isinAt + 1].trim();
+      const name = fields[isinAt + 2].trim();
+      if (!symbol || seen.has(isin) || INDEX_ISIN.test(isin)) continue;
+      seen.add(isin);
+
+      const numbers = [];
+      for (const field of fields.slice(isinAt + 3)) {
+        const number = toNumber(field);
+        if (number === null) break;
+        numbers.push(number);
+      }
+
+      rows.push({
+        isin,
+        symbol,
+        name,
+        insCode: '',
+        last: numbers.length > 1 ? numbers[1] : null,
+        closing: numbers.length > 2 ? numbers[2] : null,
+        yesterday: numbers.length >= 3 ? numbers[numbers.length - 1] : null,
+      });
+    }
+  }
+  return rows;
+}
+
+function parse(body) {
+  const trimmed = String(body).trim();
+  return trimmed.startsWith('{') || trimmed.startsWith('[') ? parseJson(trimmed) : parseText(trimmed);
+}
+
+/** فهرست کل بازار را از اولین نشانیِ پاسخ‌ده می‌گیرد */
+async function fetchMarketWatch({ urls = DEFAULT_URLS, timeoutMs = 20000 } = {}) {
+  const tried = [];
+  for (const url of urls) {
+    const startedAt = Date.now();
+    try {
+      const body = await fetchText(url, timeoutMs);
+      const rows = parse(body);
+      tried.push({ url, ok: rows.length > 0, symbols: rows.length, ms: Date.now() - startedAt });
+      if (rows.length) return { rows, url, tried };
+    } catch (err) {
+      tried.push({ url, ok: false, error: err.message, ms: Date.now() - startedAt });
+    }
+  }
+  const reasons = tried.map((t) => `${new URL(t.url).hostname}: ${t.error || 'نمادی نداشت'}`).join(' | ');
+  throw new Error(`هیچ‌کدام از نشانی‌های TSETMC پاسخ ندادند — ${reasons}`);
+}
+
+/** جست‌وجوی محلی روی فهرستی که از قبل گرفته شده */
+function search(rows, term, limit = 20) {
+  const needle = String(term || '').trim();
+  if (!needle) return [];
+
+  const exact = [];
+  const starts = [];
+  const contains = [];
+  for (const row of rows) {
+    if (row.symbol === needle) exact.push(row);
+    else if (row.symbol.startsWith(needle)) starts.push(row);
+    else if (row.symbol.includes(needle) || row.name.includes(needle)) contains.push(row);
+    if (exact.length + starts.length >= limit) break;
+  }
+  return [...exact, ...starts, ...contains].slice(0, limit);
+}
+
+module.exports = { DEFAULT_URLS, fetchMarketWatch, search, parse, parseJson, parseText, rowFromObject };

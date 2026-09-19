@@ -88,6 +88,7 @@ class Browser extends EventEmitter {
     this.nextId = 1;
     this.pending = new Map();
     this.sessions = new Set();
+    this.pageUrls = new Map(); // sessionId → نشانی صفحه
     this.port = Number(process.env.SARKHATI_DEBUG_PORT) || 9222;
   }
 
@@ -95,11 +96,44 @@ class Browser extends EventEmitter {
     return Boolean(this.ws) && !this.ws.closed;
   }
 
+  /** آیا صفحه‌ای از همان میزبانِ کارگزاری باز است؟ */
+  async hasTabFor(startUrl) {
+    let wanted;
+    try { wanted = new URL(startUrl).host; } catch { return false; }
+    try {
+      const { targetInfos } = await this.send('Target.getTargets');
+      return targetInfos.some((t) => {
+        if (t.type !== 'page') return false;
+        try { return new URL(t.url).host === wanted; } catch { return false; }
+      });
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * کروم را باز می‌کند — یا اگر از قبل با همین پورت دیباگ باز است، به همان
+   * وصل می‌شود. در حالت دوم حتماً باید خودمان تبِ کارگزاری را باز کنیم،
+   * وگرنه به تبِ بی‌ربطی که از قبل باز بوده وصل می‌مانیم.
+   */
   async open(startUrl, profileDir) {
     if (this.connected) {
-      if (startUrl) await this.send('Target.createTarget', { url: startUrl });
+      if (startUrl && !(await this.hasTabFor(startUrl))) {
+        await this.send('Target.createTarget', { url: startUrl });
+      }
       return { reused: true };
     }
+
+    // کرومِ از قبل بازِ همین برنامه
+    try {
+      await getJson(this.port, '/json/version');
+      await this.attach();
+      if (startUrl && !(await this.hasTabFor(startUrl))) {
+        await this.send('Target.createTarget', { url: startUrl });
+      }
+      return { reused: true };
+    } catch { /* باز نبود؛ خودمان بازش می‌کنیم */ }
+
     const chrome = findChrome();
     if (!chrome) {
       throw new Error('کروم یا اِج روی این سیستم پیدا نشد. مسیر آن را در متغیر SARKHATI_CHROME بگذارید.');
@@ -150,6 +184,7 @@ class Browser extends EventEmitter {
       const { sessionId, targetInfo } = msg.params;
       if (targetInfo.type === 'page') {
         this.sessions.add(sessionId);
+        this.pageUrls.set(sessionId, targetInfo.url || '');
         this.send('Network.enable', {}, sessionId).catch(() => {});
         this.send('Page.enable', {}, sessionId).catch(() => {});
       }
@@ -157,7 +192,20 @@ class Browser extends EventEmitter {
     }
     if (msg.method === 'Target.detachedFromTarget') {
       this.sessions.delete(msg.params.sessionId);
+      this.pageUrls.delete(msg.params.sessionId);
       return;
+    }
+    if (msg.method === 'Target.targetInfoChanged' && msg.params.targetInfo) {
+      const { targetId, url } = msg.params.targetInfo;
+      for (const [sessionId] of this.pageUrls) {
+        if (sessionId === targetId || msg.sessionId === sessionId) this.pageUrls.set(sessionId, url);
+      }
+      if (msg.sessionId) this.pageUrls.set(msg.sessionId, url);
+      return;
+    }
+    if (msg.method === 'Page.frameNavigated' && msg.sessionId && msg.params.frame
+        && !msg.params.frame.parentId) {
+      this.pageUrls.set(msg.sessionId, msg.params.frame.url || '');
     }
     if (msg.method) this.emit('event', msg);
   }
@@ -177,7 +225,26 @@ class Browser extends EventEmitter {
     });
   }
 
-  /** یک نشستِ صفحهٔ باز (برای اجرای کد داخل صفحهٔ کارگزاری) */
+  /**
+   * نشستِ تبِ کارگزاری. اگر چند تب باز باشد، نباید سر تبِ بی‌ربط برویم:
+   * اول دنبال تبی می‌گردیم که روی همان میزبانِ کارگزاری است.
+   */
+  sessionFor(preferredUrl) {
+    let wanted = null;
+    try { wanted = preferredUrl ? new URL(preferredUrl).host : null; } catch { wanted = null; }
+
+    if (wanted) {
+      for (const sessionId of this.sessions) {
+        const url = this.pageUrls.get(sessionId) || '';
+        try {
+          if (new URL(url).host === wanted) return sessionId;
+        } catch { /* about:blank و مانندش */ }
+      }
+    }
+    return this.anySession();
+  }
+
+  /** هر نشستِ صفحهٔ باز */
   anySession() {
     for (const sessionId of this.sessions) return sessionId;
     return null;
@@ -188,7 +255,7 @@ class Browser extends EventEmitter {
    * هدرها و توکن نشست دقیقاً همان‌هایی‌اند که مرورگر می‌فرستد.
    */
   async replayRequest(recipe) {
-    const sessionId = this.anySession();
+    const sessionId = this.sessionFor(recipe.url);
     if (!sessionId) throw new Error('هیچ صفحهٔ بازی از کارگزاری پیدا نشد.');
 
     const expression = `(async () => {

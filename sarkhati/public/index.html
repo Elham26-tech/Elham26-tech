@@ -9,111 +9,123 @@
 <body>
 <header class="topbar">
   <h1>سرخطی‌زن</h1>
-  <div class="clock">
-    <span id="clock-now">—</span>
+  <div class="head-right">
+    <span class="pill" id="pill-browser">مرورگر: —</span>
+    <span class="pill" id="pill-state">آماده</span>
+    <span class="clock" id="clock-now">—</span>
     <span class="muted" id="clock-offset"></span>
   </div>
 </header>
 
-<main class="grid">
+<main class="cols">
+  <!-- ستون راست: آماده‌سازی -->
   <section class="card">
-    <h2>گام ۱ — ورود به کارگزاری</h2>
-    <label>آدرس ایزی‌تریدر<input id="easyTraderUrl" type="url" /></label>
-    <button id="btn-open" class="primary">باز کردن ایزی تریدر</button>
-    <p class="muted">
-      پنجرهٔ کارگزاری با مرورگر خودتان باز می‌شود. نام کاربری و رمز را همان‌جا وارد کنید —
-      این برنامه رمز شما را نمی‌بیند و ذخیره نمی‌کند.
+    <div class="card-head">
+      <h2>۱ — کارگزاری</h2>
+      <span class="badge" id="learn-badge">یاد نگرفته</span>
+    </div>
+    <div class="grid-2">
+      <label>آدرس ایزی‌تریدر<input id="easyTraderUrl" type="url" /></label>
+      <div class="btn-row">
+        <button id="btn-open" class="primary">باز کردن ایزی تریدر</button>
+        <button id="btn-learn" class="ghost">یادگیری دوباره</button>
+      </div>
+    </div>
+    <p class="muted" id="learn-detail">
+      داخل ایزی‌تریدر وارد شوید و یک بار دستی سفارش بزنید تا برنامه یاد بگیرد.
+      رمز شما وارد این برنامه نمی‌شود.
     </p>
 
-    <h2>گام ۲ — یاد دادن سفارش</h2>
-    <p class="muted">
-      داخل ایزی‌تریدر نماد را جست‌وجو کنید و <b>یک بار دستی</b> خرید یا فروش بزنید.
-      برنامه همان سفارش را می‌بیند و یاد می‌گیرد.
-    </p>
-    <div class="learn" id="learn-box">
-      <div id="learn-state">در انتظار سفارش دستی…</div>
-      <div class="muted" id="learn-detail">—</div>
+    <div class="card-head">
+      <h2>۲ — نماد</h2>
+      <span class="muted" id="symbol-count"></span>
     </div>
-    <button id="btn-learn" class="ghost">روشن کردن دوبارهٔ یادگیری</button>
+    <div class="search-wrap">
+      <input id="symbolQuery" type="search" autocomplete="off"
+             placeholder="نام نماد را بنویسید… مثل فولاد" />
+      <ul id="results" class="results" hidden></ul>
+    </div>
 
-    <h2>گام ۳ — نماد</h2>
-    <div class="search">
-      <input id="symbolQuery" type="search" placeholder="نام نماد را بنویسید، مثل فولاد" />
-      <button id="btn-search" class="inline">جست‌وجو</button>
-    </div>
-    <ul id="results" class="results" hidden></ul>
     <div class="instrument" id="instrument-box" hidden>
-      <div class="inst-title" id="inst-title">—</div>
-      <dl class="status">
-        <div><dt>سقف مجاز</dt><dd id="inst-max">—</dd></div>
-        <div><dt>کف مجاز</dt><dd id="inst-min">—</dd></div>
-        <div><dt>قیمت دیروز</dt><dd id="inst-yday">—</dd></div>
-        <div><dt>تعداد مجاز هر سفارش</dt><dd id="inst-qty">—</dd></div>
-      </dl>
+      <div class="inst-head">
+        <b id="inst-title">—</b>
+        <span class="badge" id="inst-source">—</span>
+      </div>
+      <div class="limits">
+        <div><span>سقف مجاز</span><b id="inst-max">—</b></div>
+        <div><span>کف مجاز</span><b id="inst-min">—</b></div>
+        <div><span>قیمت دیروز</span><b id="inst-yday">—</b></div>
+        <div><span>حداقل تعداد</span><b id="inst-minq">—</b></div>
+        <div><span>حداکثر تعداد</span><b id="inst-maxq">—</b></div>
+        <div><span>گام قیمت</span><b id="inst-tick">—</b></div>
+      </div>
       <p class="muted" id="inst-note"></p>
     </div>
 
-    <h2>گام ۴ — تعداد و قیمت</h2>
-    <label>قیمت
-      <select id="priceMode">
-        <option value="max">سقف مجاز (سرخط خرید)</option>
-        <option value="min">کف مجاز (سرخط فروش)</option>
-        <option value="manual">دستی</option>
-      </select>
-    </label>
-    <label id="price-manual-row">قیمت دستی<input id="price" type="number" min="0" placeholder="—" /></label>
-    <div class="row">
-      <label>تعداد<input id="quantity" type="number" min="1" placeholder="—" /></label>
-      <button id="btn-max-qty" class="inline">حداکثر مجاز</button>
+    <div class="card-head"><h2>۳ — تعداد و قیمت</h2></div>
+    <div class="grid-3">
+      <label>قیمت
+        <select id="priceMode">
+          <option value="max">سقف مجاز</option>
+          <option value="min">کف مجاز</option>
+          <option value="manual">دستی</option>
+        </select>
+      </label>
+      <label id="price-manual-row">قیمت دستی<input id="price" type="number" min="0" /></label>
+      <label>تعداد
+        <span class="with-btn">
+          <input id="quantity" type="number" min="1" />
+          <button id="btn-max-qty" class="mini">حداکثر</button>
+        </span>
+      </label>
     </div>
-    <p class="muted">قیمتی که واقعاً ارسال می‌شود: <b id="effective-price">—</b></p>
+    <p class="muted">قیمت ارسالی: <b id="effective-price">—</b></p>
 
-    <h2>گام ۵ — ساعت</h2>
-    <div class="row">
+    <div class="card-head"><h2>۴ — زمان</h2></div>
+    <div class="grid-3">
       <label>ساعت هدف<input id="targetTime" type="text" placeholder="08:45:00" /></label>
-      <label>شروع چند ثانیه زودتر<input id="preArmSeconds" type="number" min="0" max="600" /></label>
+      <label>شروع زودتر (ثانیه)<input id="preArmSeconds" type="number" min="0" max="600" /></label>
+      <div class="btn-row"><button id="btn-sync">همگام‌سازی ساعت</button></div>
     </div>
-    <p class="muted">
-      چون کارگزاری‌ها گاهی تا یک دقیقه زودتر باز می‌شوند، شلیک از
-      <b id="prearm-echo">۶۰</b> ثانیه قبلِ ساعت هدف شروع می‌شود.
-    </p>
-
-    <button id="btn-arm" class="primary">مسلح کردن برای ساعت هدف</button>
-    <div class="row">
-      <button id="btn-fire">ارسال سفارش (فوری)</button>
-      <button id="btn-validate">بررسی</button>
-    </div>
-    <button id="btn-sync">همگام‌سازی ساعت</button>
-    <button id="btn-disarm" class="ghost">خلع سلاح</button>
   </section>
 
+  <!-- ستون چپ: اجرا و گزارش -->
   <section class="card">
-    <h2>وضعیت</h2>
-    <dl class="status">
-      <div><dt>روز معاملاتی</dt><dd id="st-day">—</dd></div>
-      <div><dt>مرورگر</dt><dd id="st-browser">وصل نیست</dd></div>
-      <div><dt>وضعیت</dt><dd id="st-state">آماده</dd></div>
-      <div><dt>شروع شلیک</dt><dd id="st-start">—</dd></div>
-      <div><dt>تلاش‌ها</dt><dd id="st-attempts">۰</dd></div>
-      <div><dt>پذیرفته‌شده</dt><dd id="st-accepted">۰</dd></div>
-    </dl>
+    <div class="countdown-box">
+      <div class="countdown-label" id="countdown-label">تا شروع شلیک</div>
+      <div class="countdown" id="countdown">—</div>
+      <div class="muted" id="countdown-sub">مسلح نشده</div>
+    </div>
 
-    <h2>گزارش</h2>
+    <button id="btn-arm" class="primary big">مسلح کردن برای ساعت هدف</button>
+    <div class="grid-3">
+      <button id="btn-fire">ارسال فوری</button>
+      <button id="btn-validate">بررسی</button>
+      <button id="btn-disarm" class="ghost">خلع سلاح</button>
+    </div>
+
+    <div class="stats">
+      <div><span>تلاش‌ها</span><b id="st-attempts">۰</b></div>
+      <div><span>پذیرفته</span><b id="st-accepted">۰</b></div>
+      <div><span>رد شده</span><b id="st-rejected">۰</b></div>
+      <div><span>روز معاملاتی</span><b id="st-day">—</b></div>
+    </div>
+
+    <div class="card-head"><h2>گزارش</h2></div>
     <div id="log" class="log" aria-live="polite"></div>
 
     <details>
       <summary>تنظیمات پیشرفته و آنچه یاد گرفته شده</summary>
-      <div class="row">
+      <div class="grid-2">
         <label>نرخ ارسال (در ثانیه)<input id="sendRate" type="number" min="1" max="30" /></label>
         <label>درخواست هم‌زمان<input id="parallel" type="number" min="1" max="8" /></label>
-      </div>
-      <div class="row">
         <label>سقف مدت (ثانیه)<input id="stopAfterSeconds" type="number" min="0" /></label>
         <label>سقف تعداد تلاش<input id="maxAttempts" type="number" min="1" /></label>
       </div>
       <pre class="recipe" id="recipe-box">هنوز سفارشی یاد گرفته نشده.</pre>
-      <div class="row">
-        <button id="btn-diagnostics" class="ghost">ساختن فایل عیب‌یابی</button>
+      <div class="grid-2">
+        <a class="btn-link" id="btn-diagnostics" href="/api/diagnostics" download>دریافت گزارش تشخیصی</a>
+        <button id="btn-refresh-symbols" class="ghost">به‌روزکردن فهرست نمادها</button>
         <button id="btn-reset-session" class="ghost">پاک‌کردن حافظهٔ جلسه</button>
         <button id="btn-reset-learned" class="ghost">فراموش‌کردن سفارش</button>
       </div>

@@ -20,9 +20,19 @@ const broker = http.createServer((req, res) => {
     });
     return;
   }
+  if (req.url.startsWith('/api/instrument')) {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ instrument: {
+      isin: new URL(req.url, 'http://x').searchParams.get('isin'),
+      maxAllowedPrice: 10941, minAllowedPrice: 9899,
+      maxOrderQuantity: 200000, minOrderQuantity: 10, tickSize: 1, closingPrice: 10420,
+    } }));
+    return;
+  }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   res.end(`<!doctype html><meta charset="utf-8"><title>کارگزاری قلابی</title>
   <script>
+  window.openInstrument = (isin) => fetch('/api/instrument?isin=' + isin + '&lang=fa').then(r => r.json());
   window.placeOrder = () => fetch('/api/Order/Create', {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: 'Bearer user-token' },
@@ -45,13 +55,47 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   ok('کروم باز شد و DevTools وصل شد');
   await wait(2500);
 
-  if (!engine.browser.anySession()) return fail('هیچ نشست صفحه‌ای ثبت نشد');
+  if (!engine.browser.sessionFor('http://127.0.0.1:8899/')) return fail('هیچ نشست صفحه‌ای ثبت نشد');
   ok('نشست صفحه ثبت شد');
+
+  // منتظر می‌مانیم تا صفحهٔ کارگزاری واقعاً بالا بیاید؛ خوابِ ثابت روی
+  // ماشین کُند جواب نمی‌دهد و تست را بی‌دلیل قرمز می‌کند.
+  const ready = async () => {
+    for (let i = 0; i < 60; i += 1) {
+      try {
+        const probe = await engine.browser.send('Runtime.evaluate', {
+          expression: 'typeof window.openInstrument === "function"', returnByValue: true,
+        }, engine.browser.sessionFor('http://127.0.0.1:8899/'));
+        if (probe.result && probe.result.value === true) return true;
+      } catch { /* هنوز آماده نیست */ }
+      await wait(250);
+    }
+    return false;
+  };
+  if (!await ready()) return fail('صفحهٔ کارگزاری قلابی بالا نیامد');
+  ok('صفحهٔ کارگزاری بالا آمد');
+
+  // کاربر داخل ایزی‌تریدر یک نماد را باز می‌کند → مسیر اطلاعات نماد یاد گرفته می‌شود
+  await engine.browser.send('Runtime.evaluate', {
+    expression: "window.openInstrument('IRO3LABN0001')", awaitPromise: true, returnByValue: true,
+  }, engine.browser.sessionFor('http://127.0.0.1:8899/'));
+  await wait(600);
+  if (!engine.status().hasInstrumentEndpoint) return fail('مسیر اطلاعات نماد یاد گرفته نشد');
+  ok('مسیر اطلاعات نماد یاد گرفته شد');
+
+  // حالا سقف/کف نمادِ دیگری را از خودِ کارگزار می‌پرسد
+  const picked = await engine.selectSymbol({ isin: 'IRO1FOLD0001', symbol: 'فولاد', name: 'فولاد مباركه', yesterday: 24800 });
+  if (!picked.ok) return fail('انتخاب نماد ناموفق');
+  const inst = picked.instrument;
+  if (inst.estimated) return fail('باید از کارگزاری گرفته می‌شد، نه تخمین');
+  if (inst.priceMax !== 10941 || inst.priceMin !== 9899) return fail('سقف/کف اشتباه: ' + JSON.stringify(inst));
+  if (inst.maxQuantity !== 200000 || inst.minQuantity !== 10) return fail('تعداد مجاز اشتباه');
+  ok('سقف/کف و تعداد مجاز از خودِ کارگزار گرفته شد (بدون تخمین)');
 
   // کاربر یک بار دستی سفارش می‌زند
   await engine.browser.send('Runtime.evaluate', {
     expression: 'window.placeOrder()', awaitPromise: true, returnByValue: true,
-  }, engine.browser.anySession());
+  }, engine.browser.sessionFor('http://127.0.0.1:8899/'));
   await wait(800);
 
   const learned = engine.status().recipe;
@@ -75,6 +119,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
   if (!engine.status().session.accepted) return fail('پذیرش ثبت نشد');
   ok('پاسخ پذیرفته‌شده ثبت شد');
+
+  // قیمت «سقف مجاز» باید همان عددِ کارگزاری باشد
+  engine.updateSettings({ priceMode: 'max' });
+  if (engine.effectivePrice() !== 10941) return fail('حالت سقف مجاز، قیمت کارگزاری را برنداشت');
+  ok('حالت «سقف مجاز» قیمت را از کارگزاری برمی‌دارد');
+  engine.updateSettings({ priceMode: 'manual' });
 
   // مسلح‌سازی با pre-arm
   const now = engine.now();

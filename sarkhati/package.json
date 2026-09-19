@@ -12,6 +12,9 @@
     "start": "node server.js",
     "test": "node test/run.js",
     "test:e2e": "node test/e2e.js",
-    "check": "node --check server.js"
+    "check": "node --check server.js",
+    "build:bundle": "esbuild server.js --bundle --platform=node --target=node22 --format=cjs --external:node:sea --outfile=build/bundle.js",
+    "build:blob": "node --experimental-sea-config build/sea-config.json",
+    "build:exe": "npm run build:bundle && npm run build:blob"
   }
 }

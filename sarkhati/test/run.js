@@ -11,6 +11,8 @@ process.env.SARKHATI_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'sarkhati-
 const store = require('../lib/store');
 const recipe = require('../lib/recipe');
 const tsetmc = require('../lib/tsetmc');
+const limits = require('../lib/limits');
+const endpoint = require('../lib/endpoint');
 const { Engine } = require('../lib/engine');
 
 const tests = [];
@@ -208,54 +210,11 @@ test('سفارش دستیِ ناموفق یاد گرفته نمی‌شود', () 
 });
 
 // --- نماد و سقف/کف (TSETMC) ---
-test('پاسخ JSON جست‌وجو به فهرست نماد تبدیل می‌شود', () => {
-  const rows = tsetmc.parseSearchJson({
-    instrumentSearch: [
-      { lVal18AFC: 'فولاد', lVal30: 'فولاد مباركه اصفهان', insCode: '46348559193224090', lastDate: 20260915 },
-      { lVal18AFC: 'فولاژ', lVal30: 'فولاد آلياژي ايران', insCode: '14957056743925737', lastDate: 20260915 },
-      { lVal18AFC: '', lVal30: 'بدون کد', insCode: '' },
-    ],
-  });
-  assert.strictEqual(rows.length, 2);
-  assert.strictEqual(rows[0].symbol, 'فولاد');
-  assert.strictEqual(rows[0].insCode, '46348559193224090');
-});
 
-test('پاسخ متنی سرویس قدیمی هم خوانده می‌شود', () => {
-  const rows = tsetmc.parseSearchLegacy(
-    'فولاد,فولاد مباركه اصفهان,46348559193224090,1,1,1,,1;فولاژ,فولاد آلياژي,14957056743925737,1,1,1,,1;',
-  );
-  assert.strictEqual(rows.length, 2);
-  assert.strictEqual(rows[1].symbol, 'فولاژ');
-});
 
-test('سقف و کف بدون تکیه بر نام فیلد درمی‌آید', () => {
-  const t = tsetmc.thresholdsFromObject({
-    insCode: '46348559193224090', dEven: 20260915,
-    psGelStaticThreshold: 26250, psGelStaticThresholdMin: 23750,
-  });
-  assert.strictEqual(t.max, 26250);
-  assert.strictEqual(t.min, 23750);
-});
 
-test('شناسه‌ها با سقف/کف اشتباه گرفته نمی‌شوند', () => {
-  const t = tsetmc.thresholdsFromObject({ insCode: '46348559193224090', dEven: 20260915 });
-  assert.strictEqual(t.max, null);
-  assert.strictEqual(t.min, null);
-});
 
-test('ISIN از پاسخ اطلاعات نماد پیدا می‌شود', () => {
-  const flat = tsetmc.flatten({ instrumentInfo: { instrumentID: 'IRO1FOLD0001', lVal18AFC: 'فولاد' } });
-  assert.strictEqual(tsetmc.pickIsin(flat), 'IRO1FOLD0001');
-  assert.strictEqual(tsetmc.pickIsin(tsetmc.flatten({ a: 'NOTANISIN' })), null);
-});
 
-test('عدد بر اساس الگوی نام کلید برداشته می‌شود', () => {
-  const flat = tsetmc.flatten({ instrumentInfo: { baseVol: 9600000, maxOrderQty: 200000, zero: 0 } });
-  assert.strictEqual(tsetmc.pickNumber(flat, /^baseVol$/i), 9600000);
-  assert.strictEqual(tsetmc.pickNumber(flat, /^maxOrderQty$/i), 200000);
-  assert.strictEqual(tsetmc.pickNumber(flat, /^zero$/i), null);
-});
 
 test('قیمت ارسالی از حالت انتخابی می‌آید', () => {
   const engine = new Engine();
@@ -374,6 +333,163 @@ test('دستور نامعتبرِ به‌جا مانده از نسخهٔ قبل�
   const engine = new Engine();
   assert.strictEqual(engine.status().recipe, null);
   assert.ok(engine.session.log.some((l) => l.message.includes('معتبر نبود')));
+});
+
+// --- سقف و کف از خود کارگزار ---
+const BROKER_INSTRUMENT = {
+  instrument: {
+    isin: 'IRO3LABN0001',
+    maxAllowedPrice: 10941,
+    minAllowedPrice: 9899,
+    closingPrice: 10420,
+    tickSize: 1,
+    maxOrderQuantity: 200000,
+    minOrderQuantity: 1,
+  },
+};
+
+test('سقف/کف و تعداد مجاز از پاسخ کارگزار درمی‌آید', () => {
+  const found = limits.fromResponse(BROKER_INSTRUMENT);
+  assert.strictEqual(found.upperPrice, 10941);
+  assert.strictEqual(found.lowerPrice, 9899);
+  assert.strictEqual(found.maxQuantity, 200000);
+  assert.strictEqual(found.minQuantity, 1);
+  assert.strictEqual(found.tick, 1);
+  assert.strictEqual(limits.isUseful(found), true);
+});
+
+test('نام‌های صریح بر نام‌های کلی مقدم‌اند', () => {
+  const found = limits.fromResponse({ max: 99, maxAllowedPrice: 10941, min: 1, minAllowedPrice: 9899 });
+  assert.strictEqual(found.upperPrice, 10941);
+  assert.strictEqual(found.lowerPrice, 9899);
+});
+
+test('اگر سقف و کف جابه‌جا خوانده شوند، اصلاح می‌شوند', () => {
+  const found = limits.fromResponse({ ceil: 100, floor: 900 });
+  assert.ok(found.upperPrice > found.lowerPrice);
+});
+
+test('پاسخ بی‌ربط، سقف/کف قابل‌استفاده نمی‌دهد', () => {
+  assert.strictEqual(limits.isUseful(limits.fromResponse({ ok: true, items: [] })), false);
+});
+
+test('تخمین از قیمت دیروز صریحاً تخمینی علامت می‌خورد', () => {
+  const found = limits.estimateFromYesterday(10420, 5);
+  assert.strictEqual(found.estimated, true);
+  assert.strictEqual(found.upperPrice, 10941);
+  assert.strictEqual(found.lowerPrice, 9899);
+  assert.strictEqual(limits.estimateFromYesterday(0), null);
+});
+
+// --- یادگیری مسیر اطلاعات نماد ---
+test('مسیر اطلاعات نماد با پارامتر در نشانی یاد گرفته می‌شود', () => {
+  const built = endpoint.build({
+    method: 'GET',
+    url: 'https://api.easytrader.ir/core/api/v2/instrument?isin=IRO3LABN0001&lang=fa',
+  }, { isinMode: true });
+
+  assert.strictEqual(built.param, 'isin');
+  assert.strictEqual(built.sample, 'IRO3LABN0001');
+
+  const next = endpoint.withValue(built, 'IRO1FOLD0001');
+  assert.ok(next.url.includes('isin=IRO1FOLD0001'));
+  assert.ok(next.url.includes('lang=fa'), 'بقیهٔ پارامترها باید بمانند');
+});
+
+test('کد نماد داخل خود مسیر هم پشتیبانی می‌شود', () => {
+  const built = endpoint.build({
+    method: 'GET',
+    url: 'https://api.easytrader.ir/instrument/IRO3LABN0001/details',
+  }, { isinMode: true });
+
+  assert.strictEqual(built.param, '');
+  const next = endpoint.withValue(built, 'IRO1FOLD0001');
+  assert.strictEqual(next.url, 'https://api.easytrader.ir/instrument/IRO1FOLD0001/details');
+});
+
+test('کد نماد در بدنهٔ JSON هم عوض می‌شود', () => {
+  const built = endpoint.build({
+    method: 'POST',
+    url: 'https://api.easytrader.ir/graphql',
+    postData: JSON.stringify({ isin: 'IRO3LABN0001', market: 'bourse' }),
+  }, { isinMode: true });
+
+  assert.strictEqual(built.inBody, true);
+  const body = JSON.parse(endpoint.withValue(built, 'IRO1FOLD0001').body);
+  assert.strictEqual(body.isin, 'IRO1FOLD0001');
+  assert.strictEqual(body.market, 'bourse', 'بقیهٔ بدنه باید دست‌نخورده بماند');
+});
+
+test('کد نماد داخل متن یک فیلد (مثل GraphQL) هم جایگزین می‌شود', () => {
+  const built = endpoint.build({
+    method: 'POST',
+    url: 'https://api.easytrader.ir/graphql',
+    postData: JSON.stringify({ query: '{ instrument(isin: "IRO3LABN0001") { maxPrice } }' }),
+  }, { isinMode: true });
+
+  assert.strictEqual(built.contains, true);
+  const body = JSON.parse(endpoint.withValue(built, 'IRO1FOLD0001').body);
+  assert.ok(body.query.includes('IRO1FOLD0001'));
+  assert.ok(!body.query.includes('IRO3LABN0001'));
+});
+
+test('هدرهای قابل تکرار نگه داشته و ناپایدارها حذف می‌شوند', () => {
+  const kept = endpoint.replayableHeaders({
+    'x-broker-key': 'abc', accept: 'application/json',
+    host: 'x.ir', 'content-length': '10', cookie: 'a=b',
+  });
+  assert.strictEqual(kept['x-broker-key'], 'abc');
+  assert.ok(!('host' in kept) && !('cookie' in kept));
+});
+
+// --- فهرست نمادها برای جست‌وجوی آنی ---
+test('فهرست بازار از پاسخ JSON خوانده می‌شود', () => {
+  const rows = tsetmc.parse(JSON.stringify({
+    marketwatch: [
+      { insCode: '1', lva: 'x', lVal18AFC: 'فولاد', lVal30: 'فولاد مباركه', insCode2: 'IRO1FOLD0001', pdrCotVal: 25000, priceYesterday: 24800 },
+      { lVal18AFC: 'شاخص', lVal30: 'شاخص كل', insCode2: 'IRX6XTPI0006' },
+    ],
+  }));
+  assert.strictEqual(rows.length, 1, 'شاخص نباید در فهرست سهم‌ها بیاید');
+  assert.strictEqual(rows[0].symbol, 'فولاد');
+  assert.strictEqual(rows[0].isin, 'IRO1FOLD0001');
+  assert.strictEqual(rows[0].yesterday, 24800);
+});
+
+test('فهرست بازار از پاسخ متنی قدیمی هم خوانده می‌شود', () => {
+  const rows = tsetmc.parse('1,IRO1FOLD0001,فولاد,فولاد مباركه,2,3,24900,25000,24950,100,200,24800;');
+  assert.strictEqual(rows.length, 1);
+  assert.strictEqual(rows[0].symbol, 'فولاد');
+  assert.strictEqual(rows[0].yesterday, 24800);
+});
+
+test('جست‌وجوی محلی، تطبیق دقیق را اول می‌آورد', () => {
+  const rows = [
+    { symbol: 'فولاژ', name: 'فولاد آلياژي', isin: 'IR2' },
+    { symbol: 'فولاد', name: 'فولاد مباركه', isin: 'IR1' },
+    { symbol: 'وبملت', name: 'بانك ملت', isin: 'IR3' },
+  ];
+  const found = tsetmc.search(rows, 'فولاد');
+  assert.strictEqual(found[0].symbol, 'فولاد');
+  assert.strictEqual(found.length, 2);
+  assert.strictEqual(tsetmc.search(rows, 'ملت')[0].symbol, 'وبملت');
+  assert.strictEqual(tsetmc.search(rows, '').length, 0);
+});
+
+// --- حجم در برابر محدودیت کارگزاری ---
+test('حجم بیرون از بازهٔ کارگزاری رد می‌شود', () => {
+  const engine = new Engine();
+  engine.updateSettings({
+    quantity: 500000,
+    instrument: { maxQuantity: 200000, minQuantity: 10 },
+  });
+  assert.ok(engine.quantityProblems()[0].includes('سقف'));
+
+  engine.updateSettings({ quantity: 5 });
+  assert.ok(engine.quantityProblems()[0].includes('کف'));
+
+  engine.updateSettings({ quantity: 1000 });
+  assert.deepStrictEqual(engine.quantityProblems(), []);
 });
 
 let failed = 0;

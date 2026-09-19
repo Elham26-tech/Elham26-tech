@@ -5,6 +5,8 @@ const path = require('path');
 const store = require('./store');
 const recipeLib = require('./recipe');
 const tsetmc = require('./tsetmc');
+const endpointLib = require('./endpoint');
+const limitsLib = require('./limits');
 const { Browser } = require('./browser');
 
 const MAX_LOG = 400;
@@ -86,7 +88,7 @@ class Engine {
 
   async syncClock() {
     try {
-      const sessionId = this.browser.anySession();
+      const sessionId = this.browser.sessionFor(this.settings.easyTraderUrl);
       if (!sessionId) throw new Error('اول ایزی‌تریدر را باز کنید.');
       const sentAt = Date.now();
       const result = await this.browser.send('Runtime.evaluate', {
@@ -142,7 +144,9 @@ class Engine {
   onBrowserEvent(msg) {
     if (msg.method === 'Network.requestWillBeSent') {
       const { requestId, request } = msg.params;
-      if (request && (request.method === 'POST' || request.method === 'PUT')) {
+      if (!request) return;
+      this.learnEndpoints(request);
+      if (request.method === 'POST' || request.method === 'PUT') {
         this.pendingRequests.set(requestId, request);
         if (this.pendingRequests.size > 60) {
           this.pendingRequests.delete(this.pendingRequests.keys().next().value);
@@ -177,6 +181,56 @@ class Engine {
     }
   }
 
+  /**
+   * از ترافیک ایزی‌تریدر، درخواست «اطلاعات نماد» را یاد می‌گیرد تا بعداً
+   * بشود دربارهٔ نماد دیگری هم از خودِ کارگزار پرسید — سقف و کف مجاز و
+   * تعداد مجاز از همان‌جا می‌آید، نه از تخمین.
+   */
+  learnEndpoints(request) {
+    if (this.learned.endpoints && this.learned.endpoints.instrument) return;
+    if (endpointLib.replayableHeaders && !request.url) return;
+    if (recipeLib.THIRD_PARTY.test(request.url)) return;
+    if (recipeLib.looksLikeOrder(request, { origin: this.settings.easyTraderUrl })) return;
+
+    const built = endpointLib.build(request, { isinMode: true });
+    if (!built) return;
+    built.headers = endpointLib.replayableHeaders(request.headers);
+    this.learned = store.saveEndpoint('instrument', built);
+    this.log(`مسیر اطلاعات نماد از کارگزاری یاد گرفته شد: ${new URL(built.url).pathname}`, 'ok');
+    this.persist();
+  }
+
+  /**
+   * سقف/کف مجاز و تعداد مجاز را از خودِ کارگزار می‌پرسد: همان درخواستی که
+   * ایزی‌تریدر می‌زند، این بار با کد نماد انتخاب‌شده، از داخل خود صفحه.
+   */
+  async brokerLimits(isin) {
+    const endpoint = this.learned.endpoints && this.learned.endpoints.instrument;
+    if (!endpoint) return null;
+    const prepared = endpointLib.withValue(endpoint, isin);
+    if (!prepared) return null;
+
+    try {
+      const result = await this.browser.replayRequest({
+        method: prepared.method,
+        url: prepared.url,
+        headers: prepared.headers,
+        body: prepared.method === 'GET' ? null : prepared.body,
+      });
+      if (!result.ok) {
+        this.log(`کارگزاری به پرسش اطلاعات نماد پاسخ HTTP ${result.status} داد.`, 'warn');
+        return null;
+      }
+      const payload = JSON.parse(result.text);
+      const limits = limitsLib.fromResponse(payload);
+      this.lastBrokerLimits = { url: prepared.url, limits };
+      return limitsLib.isUseful(limits) ? limits : null;
+    } catch (err) {
+      this.log(`گرفتن سقف/کف از کارگزاری ناموفق: ${err.message}`, 'warn');
+      return null;
+    }
+  }
+
   /** چند تا از درخواست‌هایی که سفارش نبودند را گزارش می‌کند، بدون شلوغ‌کاری */
   noteSkipped(request) {
     this.skipped = (this.skipped || 0) + 1;
@@ -195,12 +249,44 @@ class Engine {
   }
 
   // ---- نماد و سقف/کف --------------------------------------------------
+
+  /**
+   * فهرست کل بازار یک‌بار گرفته و روی دیسک نگه داشته می‌شود، بعد جست‌وجو
+   * محلی انجام می‌گیرد. برای همین نتیجه حین تایپ بی‌درنگ می‌آید.
+   */
+  async ensureSymbols({ force = false } = {}) {
+    if (!force && this.symbols && this.symbols.length) return this.symbols;
+
+    const cached = store.loadSymbols();
+    const freshEnough = cached.fetchedAt
+      && Date.now() - new Date(cached.fetchedAt).getTime() < 12 * 3600 * 1000;
+    if (!force && cached.rows.length && freshEnough) {
+      this.symbols = cached.rows;
+      return this.symbols;
+    }
+
+    try {
+      const { rows, url } = await tsetmc.fetchMarketWatch();
+      store.saveSymbols(rows, url);
+      this.symbols = rows;
+      this.log(`فهرست نمادها به‌روز شد: ${rows.length} نماد از ${new URL(url).hostname}`, 'ok');
+      this.persist();
+      return rows;
+    } catch (err) {
+      if (cached.rows.length) {
+        this.symbols = cached.rows;
+        this.log(`فهرست تازه گرفته نشد (${err.message})؛ از فهرست ذخیره‌شده استفاده می‌شود.`, 'warn');
+        this.persist();
+        return this.symbols;
+      }
+      throw err;
+    }
+  }
+
   async searchSymbol(query) {
     try {
-      const { rows, source } = await tsetmc.search(query);
-      this.log(`جست‌وجوی «${query}»: ${rows.length} نماد پیدا شد.`, rows.length ? 'ok' : 'warn');
-      this.persist();
-      return { ok: true, rows: rows.slice(0, 25), source };
+      const rows = await this.ensureSymbols();
+      return { ok: true, rows: tsetmc.search(rows, query), total: rows.length };
     } catch (err) {
       this.log(`جست‌وجوی نماد ناموفق: ${err.message}`, 'error');
       this.persist();
@@ -208,52 +294,69 @@ class Engine {
     }
   }
 
-  /** نماد را انتخاب و سقف/کف مجازش را از TSETMC می‌گیرد */
-  async selectSymbol({ insCode, symbol, name }) {
-    try {
-      const info = await tsetmc.limits(insCode, { rangePercent: this.settings.rangePercent });
-      this.lastTsetmcRaw = info.raw;
-      const instrument = {
-        insCode: info.insCode,
-        symbol: info.symbol || symbol || '',
-        name: info.name || name || '',
-        isin: info.isin,
-        priceMax: info.priceMax,
-        priceMin: info.priceMin,
-        estimated: info.estimated,
-        yesterdayPrice: info.yesterdayPrice,
-        lastPrice: info.lastPrice,
-        maxQuantity: info.maxQuantity,
-        minQuantity: info.minQuantity,
-        baseVolume: info.baseVolume,
-        fetchedAt: new Date().toISOString(),
-      };
-
-      this.settings = store.saveSettings({
-        insCode: instrument.insCode,
-        // کارگزاری معمولاً ISIN می‌خواهد؛ اگر نبود، همان نماد می‌رود
-        symbol: instrument.isin || instrument.symbol,
-        symbolName: instrument.name,
-        instrument,
-      });
-
-      this.log(
-        `نماد ${instrument.symbol}: سقف ${instrument.priceMax ?? '—'} / کف ${instrument.priceMin ?? '—'}` +
-          (instrument.estimated ? ' (تخمینی از قیمت دیروز)' : ''),
-        'ok',
-      );
-      if (instrument.maxQuantity || instrument.minQuantity) {
-        this.log(`تعداد مجاز هر سفارش: ${instrument.minQuantity ?? '—'} تا ${instrument.maxQuantity ?? '—'}`, 'info');
-      } else {
-        this.log('TSETMC سقف/کف تعداد نداد؛ تعداد را دستی بگذارید.', 'warn');
-      }
+  /**
+   * نماد را انتخاب می‌کند و محدودیت‌هایش را می‌گیرد.
+   * اول از خودِ کارگزار — که مرجع واقعی است — و فقط اگر نشد، تخمین از
+   * قیمت دیروز، که آن‌وقت صریحاً «تخمینی» علامت می‌خورد.
+   */
+  async selectSymbol(row) {
+    const isin = String(row.isin || '').trim();
+    if (!isin) {
+      this.log('نماد انتخاب‌شده کد ISIN ندارد.', 'error');
       this.persist();
-      return { ok: true, instrument };
-    } catch (err) {
-      this.log(`گرفتن اطلاعات نماد ناموفق: ${err.message}`, 'error');
-      this.persist();
-      return { ok: false, error: err.message };
+      return { ok: false, error: 'نماد بدون کد' };
     }
+
+    let limits = await this.brokerLimits(isin);
+    let estimated = false;
+
+    if (!limits) {
+      limits = limitsLib.estimateFromYesterday(row.yesterday || row.closing, this.settings.rangePercent);
+      estimated = Boolean(limits);
+      if (limits) {
+        this.log(
+          this.learned.endpoints && this.learned.endpoints.instrument
+            ? 'کارگزاری سقف/کف نداد؛ فعلاً تخمین از قیمت دیروز استفاده می‌شود.'
+            : 'هنوز مسیر اطلاعات نماد از کارگزاری یاد گرفته نشده؛ در ایزی‌تریدر نماد را باز کنید تا سقف/کف واقعی بیاید.',
+          'warn',
+        );
+      }
+    }
+
+    const instrument = {
+      isin,
+      symbol: row.symbol || '',
+      name: row.name || '',
+      insCode: row.insCode || '',
+      priceMax: limits ? limits.upperPrice : null,
+      priceMin: limits ? limits.lowerPrice : null,
+      tick: limits ? limits.tick : null,
+      maxQuantity: limits ? limits.maxQuantity : null,
+      minQuantity: limits ? limits.minQuantity : null,
+      lastPrice: (limits && limits.lastPrice) || row.last || null,
+      yesterdayPrice: row.yesterday || null,
+      estimated,
+      source: limits ? limits.source : null,
+      fetchedAt: new Date().toISOString(),
+    };
+
+    this.settings = store.saveSettings({
+      symbol: isin,
+      symbolName: instrument.name || instrument.symbol,
+      insCode: instrument.insCode,
+      instrument,
+    });
+
+    this.log(
+      `نماد ${instrument.symbol}: سقف ${instrument.priceMax ?? '—'} / کف ${instrument.priceMin ?? '—'}`
+        + (estimated ? ' (تخمینی)' : ' (از کارگزاری)'),
+      estimated ? 'warn' : 'ok',
+    );
+    if (instrument.maxQuantity || instrument.minQuantity) {
+      this.log(`تعداد مجاز هر سفارش: ${instrument.minQuantity ?? '—'} تا ${instrument.maxQuantity ?? '—'}`, 'info');
+    }
+    this.persist();
+    return { ok: true, instrument };
   }
 
   /** قیمتی که واقعاً ارسال می‌شود: سقف مجاز، کف مجاز، یا عدد دستی */
@@ -273,8 +376,25 @@ class Engine {
   }
 
   // ---- بررسی ----------------------------------------------------------
+  /** حجم سفارش را با محدودیت خودِ کارگزاری می‌سنجد */
+  quantityProblems() {
+    const inst = this.settings.instrument;
+    const quantity = Number(this.settings.quantity);
+    if (!inst || !(quantity > 0)) return [];
+    const problems = [];
+    if (inst.maxQuantity && quantity > inst.maxQuantity) {
+      problems.push(`تعداد ${quantity} از سقف کارگزاری (${inst.maxQuantity}) بیشتر است.`);
+    }
+    if (inst.minQuantity && quantity < inst.minQuantity) {
+      problems.push(`تعداد ${quantity} از کف کارگزاری (${inst.minQuantity}) کمتر است.`);
+    }
+    return problems;
+  }
+
   validate() {
     const check = recipeLib.validate(this.learned.recipe, this.overrides());
+    check.problems = [...check.problems, ...this.quantityProblems()];
+    check.ok = check.problems.length === 0;
     if (!check.ok) {
       for (const problem of check.problems) this.log(`بررسی: ${problem}`, 'error');
       this.persist();
@@ -307,7 +427,16 @@ class Engine {
 
     this.session.rejected += 1;
     this.session.lastError = `${result.status} — ${String(result.text).slice(0, 200)}`;
-    this.log(`تلاش ${attemptNo}: رد — HTTP ${result.status} | ${String(result.text).slice(0, 160)}`, 'error');
+
+    // ۵xx یعنی ایراد سمت کارگزاری است، نه سفارش ما — معمولاً بیرون از
+    // ساعت معاملات. بدون این توضیح، کاربر دنبال اشکالِ نداشته می‌گردد.
+    const serverSide = result.status >= 500;
+    this.log(
+      `تلاش ${attemptNo}: رد — HTTP ${result.status}`
+        + (serverSide ? ' (سرور کارگزاری پاسخ نداد؛ احتمالاً بیرون از ساعت معاملات)' : '')
+        + ` | ${String(result.text).slice(0, 140)}`,
+      'error',
+    );
   }
 
   arm() {
@@ -440,7 +569,9 @@ class Engine {
         fields: recipe.fields,
         learnedAt: recipe.learnedAt,
       },
-      آخرین_پاسخ_TSETMC: this.lastTsetmcRaw || null,
+      مسیر_اطلاعات_نماد: (this.learned.endpoints && this.learned.endpoints.instrument) || null,
+      آخرین_سقف_کف_کارگزاری: this.lastBrokerLimits || null,
+      تعداد_نمادهای_فهرست: (this.symbols || []).length,
       گزارش: this.session.log.slice(-60),
     };
 
@@ -450,7 +581,7 @@ class Engine {
     this.log(`فایل عیب‌یابی ساخته شد: ${file}`, 'ok');
     this.log('این فایل توکن و کوکی ندارد و فرستادنش امن است.', 'info');
     this.persist();
-    return { ok: true, file };
+    return { ok: true, file, report };
   }
 
   // ---- وضعیت ----------------------------------------------------------
@@ -482,6 +613,8 @@ class Engine {
       fireStartAt: new Date(this.fireStartTimestamp(now)).toISOString(),
       secondsToFireStart: Math.round((this.fireStartTimestamp(now) - now.getTime()) / 1000),
       browserConnected: this.browser.connected,
+      hasInstrumentEndpoint: Boolean(this.learned.endpoints && this.learned.endpoints.instrument),
+      symbolCount: (this.symbols || []).length,
       settings: this.settings,
       effectivePrice: this.effectivePrice() ?? null,
       recipe: recipe && {
