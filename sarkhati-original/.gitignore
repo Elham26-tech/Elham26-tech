@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+config.yaml
+*.log
+
+# اندروید
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.keystore
+
+# ویندوز
+windows/dist/
+sarkhati-config.json
+windows/sarkhati
+windows/*.exe

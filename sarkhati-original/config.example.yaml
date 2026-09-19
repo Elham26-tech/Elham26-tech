@@ -1,0 +1,68 @@
+# نمونهٔ پیکربندی سرخطی‌زن. کپی کنید به config.yaml و مقادیر را پر کنید.
+# هیچ‌وقت توکن یا رمز را داخل این فایل ننویسید؛ از متغیر محیطی استفاده کنید.
+
+schedule:
+  target_time: "08:30:00.000"   # لحظهٔ بازگشایی پیش‌گشایش/معاملات
+  date: next                    # today | tomorrow | next | 1404-07-01
+  timezone: Asia/Tehran
+  lead_ms: auto                 # auto = نصف RTT اندازه‌گیری‌شده
+  retries: 2                    # تلاش پشتیبان در صورت رد شدن سفارش
+  retry_gap_ms: 40
+
+clock:
+  method: auto                  # auto | http | ntp | local
+  ntp_servers:
+    - ntp.sharif.edu
+    - pool.ntp.org
+    - time.google.com
+  http_url: ""                  # خالی = از base_url کارگزار استفاده می‌شود
+  max_uncertainty_ms: 50        # بیشتر از این، ارسال زنده متوقف می‌شود
+
+order:
+  symbol: "فولاد"
+  isin: "IRO1FOLD0001"
+  side: buy                     # buy | sell
+  quantity: 1000
+  price_mode: upper_band        # upper_band | lower_band | limit
+  price: null                   # فقط در حالت limit، به ریال
+  reference_price: 5430         # قیمت پایانی دیروز به ریال — برای کنترل دامنه لازم است
+  validity: day
+
+risk:
+  band_pct: 3.0                 # دامنهٔ نوسان روزانه؛ بورس/فرابورس/صندوق فرق دارند
+  tick: 1                       # گام قیمت به ریال
+  max_order_value: 1000000000   # سقف ارزش هر سفارش به ریال — از کارگزار تأیید بگیرید
+  max_quantity: 1000000
+  allowed_symbols:              # فهرست سفید؛ خالی گذاشتنش یعنی هر نمادی مجاز است
+    - "فولاد"
+  require_reference_price: true
+
+broker:
+  name: dryrun                  # dryrun | easytrader | desktop
+  settings:
+    base_url: "https://api.emofid.com"
+    order_path: "/easy/api/OmsOrder/Post"   # ← با درخواست واقعی کلاینت خودتان جایگزین کنید
+    warmup_path: "/"
+    token_env: SARKHATI_TOKEN               # توکن از این متغیر محیطی خوانده می‌شود
+    connections: 2
+    side_values:
+      buy: 1
+      sell: 2
+    payload_template:           # ← دقیقاً بدنهٔ درخواست ثبت سفارش کلاینت خودتان
+      isin: "{isin}"
+      quantity: "{quantity}"
+      price: "{price}"
+      side: "{side}"
+      validityType: "{validity}"
+    success_markers:
+      - '"isSuccessful":true'
+    failure_markers: []
+
+# نمونهٔ حالت دسکتاپ (کلیک روی دکمهٔ ارسالِ فرمِ از قبل پرشده):
+# broker:
+#   name: desktop
+#   settings:
+#     mode: click               # click | hotkey
+#     x: 1180
+#     y: 640
+#     window_title: EasyTrader

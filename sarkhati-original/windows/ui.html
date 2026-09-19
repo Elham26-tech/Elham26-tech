@@ -1,0 +1,1158 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>سرخطی‌زن</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --panel-2: #1c2430; --ink: #e6edf3;
+    --muted: #8b949e; --line: #263140; --accent: #2ea88a; --accent-2: #36c493;
+    --accent-ink: #04140f; --danger: #f2705f; --warn: #e3b341; --shadow: rgba(0,0,0,.35);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f2f4f7; --panel: #ffffff; --panel-2: #f7f9fb; --ink: #16191d;
+      --muted: #5f6b7a; --line: #e1e6ec; --accent: #0b7a5a; --accent-2: #0e9469;
+      --accent-ink: #ffffff; --danger: #b3261e; --warn: #9a6700; --shadow: rgba(15,25,40,.08);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); font-size: 14px;
+    font-family: Vazirmatn, "Segoe UI", Tahoma, sans-serif; line-height: 1.6;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 18px 16px 56px; }
+
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .brand { font-size: 19px; font-weight: 700; letter-spacing: -.2px; }
+  .brand span { color: var(--accent-2); }
+  .pills { display: flex; gap: 6px; margin-inline-start: auto; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+    padding: 4px 10px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--accent-2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-2) 22%, transparent); }
+  .dot.bad { background: var(--danger); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px; margin-bottom: 14px; box-shadow: 0 1px 2px var(--shadow);
+  }
+  .card h2 {
+    font-size: 12px; letter-spacing: .4px; text-transform: uppercase; color: var(--muted);
+    margin: 0 0 14px; font-weight: 700;
+  }
+  .cols { display: grid; grid-template-columns: 1.15fr .85fr; gap: 14px; align-items: start; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  input, select, textarea {
+    width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--panel-2); color: var(--ink); font-family: inherit; font-size: 14px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  input[dir=ltr] { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
+  textarea { min-height: 70px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; direction: ltr; }
+  .field { margin-bottom: 12px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > * { flex: 1; min-width: 0; }
+
+  .seg { display: flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .seg button {
+    flex: 1; padding: 9px 6px; border: 0; background: transparent; color: var(--muted);
+    font-family: inherit; font-size: 13px; cursor: pointer; transition: background .15s, color .15s;
+  }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+  .seg.sell button.on { background: var(--danger); color: #fff; }
+
+  button.btn {
+    padding: 11px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--ink); font-family: inherit; font-size: 14px; cursor: pointer; transition: all .15s;
+  }
+  button.btn:hover { border-color: var(--accent); transform: translateY(-1px); }
+  button.btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  button.btn.primary { background: linear-gradient(180deg, var(--accent-2), var(--accent)); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+  button.btn.stop { background: var(--danger); color: #fff; border-color: transparent; font-weight: 700; }
+  button.btn.wide { width: 100%; }
+
+  .search { position: relative; }
+  .results {
+    position: absolute; inset-inline: 0; top: calc(100% + 4px); z-index: 30; max-height: 260px;
+    overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 10px 30px var(--shadow);
+  }
+  .results div { padding: 9px 12px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  .results div:hover, .results div.active { background: var(--panel-2); }
+  .results b { font-size: 14px; }
+  .results small { color: var(--muted); font-size: 11px; }
+
+  .limits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 4px; }
+  .limit { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 10px; text-align: center; cursor: pointer; }
+  .limit:hover { border-color: var(--accent); }
+  .limit .k { font-size: 11px; color: var(--muted); }
+  .limit .v { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; direction: ltr; }
+  .limit.up .v { color: var(--accent-2); }
+  .limit.down .v { color: var(--danger); }
+
+  .countdown {
+    font-family: ui-monospace, Consolas, monospace; font-size: 52px; font-weight: 700;
+    text-align: center; direction: ltr; letter-spacing: 1px; line-height: 1.1; margin: 4px 0 2px;
+  }
+  .clockline { text-align: center; font-size: 12px; color: var(--muted); min-height: 20px; }
+  .time-inputs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .time-inputs input { text-align: center; font-size: 18px; font-variant-numeric: tabular-nums; padding: 10px 4px; }
+  .time-inputs .u { text-align: center; font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .steps { display: flex; flex-direction: column; gap: 8px; }
+  .step { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+  .step .n {
+    width: 22px; height: 22px; flex: none; border-radius: 50%; background: var(--panel-2);
+    border: 1px solid var(--line); display: grid; place-items: center; font-size: 11px; color: var(--muted);
+  }
+  .step.done .n { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .step.done { color: var(--muted); }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip {
+    font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line);
+    color: var(--muted); background: var(--panel-2);
+  }
+  .chip.on { border-color: transparent; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+  .chip.bad { border-color: #f87171; color: #f87171; }
+  .hint.ok { background: color-mix(in srgb, var(--accent) 12%, transparent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+  .hint { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 12%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); font-size: 13px; }
+
+  .switch { display: flex; align-items: center; gap: 10px; }
+  .switch input { width: auto; }
+  #log {
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px; direction: rtl; text-align: right;
+    white-space: pre-wrap; max-height: 230px; overflow-y: auto; margin: 0; color: var(--muted);
+  }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  .note { color: var(--muted); font-size: 12px; }
+  .bad { color: var(--danger); } .good { color: var(--accent-2); }
+  .hidden { display: none !important; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td { padding: 5px 6px; border-bottom: 1px solid var(--line); }
+  td.u { direction: ltr; text-align: left; word-break: break-all; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">سرخطی‌<span>زن</span></div>
+    <div class="pills">
+      <span class="pill"><i class="dot" id="pBrowser"></i> مرورگر</span>
+      <span class="pill"><i class="dot" id="pLogin"></i> ورود</span>
+      <span class="pill"><i class="dot" id="pApi"></i> تنظیمات API</span>
+      <span class="pill" id="pToken">توکن —</span>
+      <span class="pill" id="pClock" style="font-family:ui-monospace,Consolas,monospace;direction:ltr">--:--:--.---</span>
+    </div>
+  </header>
+
+  <div class="card" id="bannerCard" style="display:none">
+    <div id="bannerText" class="hint"></div>
+    <div class="row" id="bannerActions" style="margin-top:8px"></div>
+  </div>
+
+  <!-- راه‌اندازی -->
+  <div class="card" id="setupCard">
+    <h2>راه‌اندازی</h2>
+    <div class="cols" style="grid-template-columns: 1fr auto; align-items: center">
+      <div class="steps">
+        <div class="step" id="st1"><i class="n">۱</i><div>باز کردن ایزی‌تریدر در پنجرهٔ کنترل‌شده</div></div>
+        <div class="step" id="st2"><i class="n">۲</i><div>ورود دستی شما به حساب (رمز و کد را فقط خودتان وارد می‌کنید)</div></div>
+        <div class="step" id="st3"><i class="n">۳</i><div>
+          یادگیری خودکار در حین کار عادی شما با ایزی‌تریدر
+          <div class="chips" style="margin-top:6px">
+            <span class="chip" id="chSearch">جست‌وجوی نماد</span>
+            <button class="btn" id="tseBtn" style="padding:2px 10px;font-size:11px" onclick="refreshTsetmc()">گرفتن از TSETMC</button>
+            <button class="btn" id="tseTestBtn" style="padding:2px 10px;font-size:11px" onclick="testTsetmc()">تست نشانی‌ها</button>
+            <button class="btn" id="symBtn" style="padding:2px 10px;font-size:11px" onclick="refreshSymbols()">گرفتن فهرست نمادها</button>
+            <span class="chip" id="chQuote">سقف و کف قیمت</span>
+            <span class="chip" id="chOrder">قالب سفارش</span>
+          </div>
+        </div></div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:8px; min-width:190px">
+        <button class="btn primary wide" id="openBtn" onclick="openEasyTrader()">باز کردن ایزی‌تریدر</button>
+        <button class="btn wide" onclick="stopBrowser()">بستن پنجره</button>
+      </div>
+    </div>
+    <div class="note" id="tseNote" style="margin-top:8px"></div>
+    <div class="hint" id="hint">برای شروع، «باز کردن ایزی‌تریدر» را بزنید.</div>
+  </div>
+
+  <div class="cols">
+    <!-- سفارش -->
+    <div class="card">
+      <h2>سفارش</h2>
+
+      <div class="field search">
+        <label>نماد</label>
+        <input id="symbolBox" placeholder="حرف اول نماد را بنویسید…" autocomplete="off"
+               oninput="onSearchInput()" onkeydown="onSearchKey(event)">
+        <div class="results hidden" id="results"></div>
+        <div class="note" id="symbolNote" style="margin-top:6px">نمادی انتخاب نشده — یکی از فهرست انتخاب کنید</div>
+      </div>
+
+      <div class="field">
+        <label>سمت</label>
+        <div class="seg" id="sideSeg">
+          <button type="button" class="on" onclick="setSide('buy')">خرید</button>
+          <button type="button" onclick="setSide('sell')">فروش</button>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field"><label>حجم</label><input id="quantity" type="number" dir="ltr" min="1"></div>
+        <div class="field"><label>قیمت (ریال)</label><input id="priceBox" type="number" dir="ltr"></div>
+      </div>
+
+      <div class="field">
+        <label>قیمت از</label>
+        <div class="seg" id="modeSeg">
+          <button type="button" class="on" onclick="setMode('upper_band')">سقف</button>
+          <button type="button" onclick="setMode('lower_band')">کف</button>
+          <button type="button" onclick="setMode('limit')">دستی</button>
+        </div>
+      </div>
+
+      <div class="limits">
+        <div class="limit up" onclick="useLimit('upper')"><div class="k">سقف مجاز</div><div class="v" id="lUpper">—</div></div>
+        <div class="limit" onclick="useLimit('last')"><div class="k">آخرین قیمت</div><div class="v" id="lLast">—</div></div>
+        <div class="limit down" onclick="useLimit('lower')"><div class="k">کف مجاز</div><div class="v" id="lLower">—</div></div>
+      </div>
+      <div class="limits" style="margin-top:8px">
+        <div class="limit" onclick="useMaxQuantity()" title="کلیک کنید تا در کادر حجم بنشیند"><div class="k">حداکثر تعداد مجاز</div><div class="v" id="lMaxQty">—</div></div>
+        <div class="limit"><div class="k">حداقل تعداد مجاز</div><div class="v" id="lMinQty">—</div></div>
+        <div class="limit"><div class="k">گام قیمت</div><div class="v" id="lTick">—</div></div>
+      </div>
+      <div class="note" id="limitNote" style="margin-top:8px">سقف و کف پس از انتخاب نماد از خود کارگزاری گرفته می‌شود.</div>
+    </div>
+
+    <!-- زمان‌بندی و اجرا -->
+    <div class="card">
+      <h2>زمان ارسال</h2>
+      <div class="countdown" id="countdown">08:30</div>
+      <div class="clockline" id="clockText">ساعت هنوز همگام نشده است</div>
+      <div class="clockline" id="rateLine" style="display:none"></div>
+
+      <div class="time-inputs" style="margin-top:14px">
+        <div><input id="th" type="number" dir="ltr" min="0" max="23" value="8"><div class="u">ساعت</div></div>
+        <div><input id="tm" type="number" dir="ltr" min="0" max="59" value="30"><div class="u">دقیقه</div></div>
+        <div><input id="ts" type="number" dir="ltr" min="0" max="59" value="0"><div class="u">ثانیه</div></div>
+        <div><input id="tms" type="number" dir="ltr" min="0" max="999" value="0"><div class="u">میلی‌ثانیه</div></div>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <button class="btn" style="padding:5px 10px;font-size:12px" onclick="setTarget(8,30,0)">۸:۳۰:۰۰ پیش‌گشایش</button>
+        <button class="btn" style="padding:5px 10px;font-size:12px" onclick="setTarget(9,0,0)">۹:۰۰:۰۰ بازگشایی</button>
+        <button class="btn" style="padding:5px 10px;font-size:12px" onclick="setTargetSoon(60)">یک دقیقهٔ دیگر</button>
+      </div>
+      <div class="note" id="fireNote" style="margin-top:8px"></div>
+
+      <div class="field" style="margin-top:12px">
+        <label>روش ارسال</label>
+        <div class="seg" id="fireSeg">
+          <button type="button" class="on" onclick="setFireMode('until_stop')">تا وقتی متوقف کنم</button>
+          <button type="button" onclick="setFireMode('count')">تعداد مشخص</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field" id="countField"><label>تعداد ارسال</label><input id="retries" type="number" dir="ltr" min="1" step="1"></div>
+        <div class="field"><label>فاصله (ms)</label><input id="retry_gap_ms" type="number" dir="ltr" min="5"></div>
+        <div class="field"><label>سقف مدت (ثانیه)</label><input id="max_duration_s" type="number" dir="ltr" min="5"></div>
+      </div>
+
+      <div class="note" style="margin: 4px 0 12px">هر ارسالی واقعی است؛ پیش از ارسال یک‌بار تأیید گرفته می‌شود.
+        فاصلهٔ کم یعنی ارسال بیشتر در ثانیه: تعداد اتصال‌های موازی خودکار از روی زمان پاسخ کارگزار
+        حساب می‌شود تا فاصلهٔ خواسته‌شده واقعاً رعایت شود.</div>
+
+      <button class="btn primary wide" id="armBtn" onclick="toggleArm()" style="margin-bottom:8px">مسلح کردن برای ساعت هدف</button>
+      <div class="row">
+        <button class="btn" onclick="sendNow()">ارسال سفارش (فوری)</button>
+        <button class="btn" onclick="checkOrder()">بررسی</button>
+      </div>
+      <button class="btn wide" style="margin-top:8px" onclick="syncClock()">همگام‌سازی ساعت</button>
+    </div>
+  </div>
+
+  <!-- حساب‌های دیگر -->
+  <div class="card">
+    <h2>حساب‌های دیگر — ارسال هم‌زمان</h2>
+    <p class="note">علاوه بر حسابی که همین حالا در پنجرهٔ ایزی‌تریدر باز است، می‌توانید چند حساب
+      دیگر تعریف کنید تا سرِ ساعت، سفارش <b>هم‌زمان</b> برای همه برود. هر حساب پنجره و نشست
+      جدای خودش را دارد، پس ورود به یکی، دیگری را بیرون نمی‌اندازد.</p>
+    <div id="accountsList"></div>
+    <div class="row" style="margin-top:10px">
+      <div class="field" style="flex:1"><label>نام حساب تازه</label>
+        <input id="newAccountName" placeholder="مثلاً حساب مادر"></div>
+      <div style="display:flex;align-items:flex-end">
+        <button class="btn primary" onclick="addAccount()">افزودن حساب و باز کردن پنجره</button>
+      </div>
+    </div>
+    <div class="note" style="margin-top:6px">روند کار: «افزودن حساب» → در پنجرهٔ تازه با همان حساب
+      وارد شوید → یک‌بار پنجرهٔ ثبت سفارش ایزی‌تریدر را باز کنید → «ذخیرهٔ این حساب». توکن ورود
+      هر حساب در فایل تنظیمات همین کامپیوتر نگه داشته می‌شود (نام کاربری و رمز هرگز).</div>
+  </div>
+
+  <!-- عیب‌یابی -->
+  <div class="card">
+    <h2>عیب‌یابی و فایل تنظیمات</h2>
+    <div class="note">اگر روی کامپیوتر دیگری کار نکرد، همین‌جا را بزنید: هر چیزی که باید درست
+      باشد روی همان کامپیوتر آزمایش می‌شود و می‌گوید کدام‌یک ایراد دارد.</div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn primary" onclick="runSelfTest()">اجرای عیب‌یابی این کامپیوتر</button>
+      <button class="btn" onclick="copySelfTest()">کپی گزارش</button>
+      <button class="btn" onclick="exportConfig()">ذخیرهٔ فایل تنظیمات</button>
+      <button class="btn" onclick="document.getElementById('importFile').click()">خواندن فایل تنظیمات</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none"
+             onchange="importConfig(event)">
+    </div>
+    <div id="selftest" style="margin-top:10px"></div>
+    <div class="note" id="pathsNote" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" onclick="applyDefaults()">اعمال پیش‌فرض‌های نسخهٔ جدید</button>
+      <button class="btn" onclick="resetLearned()">پاک‌کردن یادگرفته‌های کارگزاری</button>
+      <button class="btn stop" onclick="resetAll()">پاک‌کردن همهٔ تنظیمات</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>گزارش</h2>
+    <pre id="log">هنوز چیزی اجرا نشده است.</pre>
+  </div>
+
+  <div class="card">
+    <details id="advanced">
+      <summary>تنظیمات پیشرفته و آنچه یاد گرفته شده</summary>
+      <div style="margin-top:14px">
+        <div class="row">
+          <div class="field"><label>نشانی پایه (یادگرفته‌شده)</label><input id="base_url" dir="ltr"></div>
+          <div class="field"><label>مسیر ثبت سفارش (یادگرفته‌شده)</label><input id="order_path" dir="ltr"></div>
+        </div>
+        <div class="field"><label>نشانی کامل ثبت سفارش (یادگرفته‌شده)</label><input id="order_url" dir="ltr"></div>
+        <div class="field"><label>قالب بدنهٔ سفارش (یادگرفته‌شده)</label><textarea id="payload_template"></textarea></div>
+        <div class="row">
+          <div class="field"><label>کد سمت خرید</label><input id="side_buy" dir="ltr"></div>
+          <div class="field"><label>کد سمت فروش</label><input id="side_sell" dir="ltr"></div>
+        </div>
+        <p class="note">کد سمت از همان سفارشی که یاد گرفته شده برداشته می‌شود. اگر آن سفارش
+          <b>فروش</b> بوده، این دو را جابه‌جا کنید — وگرنه سفارش با سمت اشتباه می‌رود.</p>
+        <div class="row">
+          <div class="field"><label>نشانهٔ موفقیت در پاسخ</label><input id="success_marker" dir="ltr" placeholder="خالی = هر پاسخ ۲xx"></div>
+          <div class="field"><label>پیش‌فرست (ms، ‎-1 = خودکار)</label><input id="lead_ms" type="number" dir="ltr"></div>
+          <div class="field"><label>اتصال موازی (۰ = خودکار)</label><input id="connections" type="number" dir="ltr" min="0" max="16"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>مسیر مرورگر (خالی = پیدا کردن خودکار)</label><input id="browser_path" dir="ltr" placeholder="C:\Program Files\Google\Chrome\Application\chrome.exe"></div>
+          <div class="field"><label>نشانی پورتال کارگزاری</label><input id="portal_url" dir="ltr"></div>
+        </div>
+
+        <div style="margin-top:16px">
+          <label>وارد کردن دستی از cURL — اگر تشخیص خودکار جواب نداد</label>
+          <div class="note" style="margin-bottom:6px">در تب Network مرورگر روی درخواست راست‌کلیک کنید ← Copy ← Copy as cURL، و همین‌جا بچسبانید.</div>
+          <textarea id="curlBox" placeholder="curl 'https://...' -H 'authorization: Bearer ...' --data-raw '{...}'"></textarea>
+          <div class="row" style="margin-top:6px">
+            <button class="btn" onclick="downloadDiagnostics()">دریافت گزارش تشخیصی</button>
+            <select id="curlKind">
+              <option value="">تشخیص خودکار نوع</option>
+              <option value="order">ثبت سفارش</option>
+              <option value="search">جست‌وجوی نماد</option>
+              <option value="instrument">اطلاعات نماد</option>
+            </select>
+            <button class="btn" onclick="importCurl()">وارد کن</button>
+          </div>
+        </div>
+
+        <div style="margin-top:16px">
+          <label>درخواست‌های دیده‌شده — اگر تشخیص خودکار اشتباه بود، دستی انتخاب کنید</label>
+          <button class="btn" onclick="loadCaptured()">تازه‌سازی فهرست</button>
+          <table id="capturedTable"></table>
+        </div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const CFG_FIELDS = ["quantity","retries","retry_gap_ms","max_duration_s","lead_ms","base_url","order_path",
+  "order_url","payload_template","success_marker","connections","browser_path","portal_url",
+  "side_buy","side_sell"];
+const NUMERIC = new Set(["quantity","retries","retry_gap_ms","max_duration_s","lead_ms","connections"]);
+
+let cfg = {side: "buy", price_mode: "upper_band", mode: "api", isin: "", symbol: "", symbol_name: ""};
+let limits = {};
+let running = false, targetEpochMs = 0, serverNowAtPoll = 0, perfAtPoll = 0;
+let searchTimer = null, activeIndex = -1, hits = [];
+
+async function api(path, body) {
+  const res = await fetch(path, {
+    method: body === undefined ? "GET" : "POST",
+    headers: {"Content-Type": "application/json", "X-Sarkhati-Token": TOKEN},
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+function collect() {
+  for (const key of CFG_FIELDS) {
+    const el = document.getElementById(key);
+    if (el) cfg[key] = NUMERIC.has(key) ? Number(el.value || 0) : el.value;
+  }
+  cfg.target_hour = Number(document.getElementById("th").value || 0);
+  cfg.target_minute = Number(document.getElementById("tm").value || 0);
+  cfg.target_second = Number(document.getElementById("ts").value || 0);
+  cfg.target_millis = Number(document.getElementById("tms").value || 0);
+  cfg.limit_price = Number(document.getElementById("priceBox").value || 0);
+  cfg.mode = cfg.mode || "api";
+  return cfg;
+}
+
+function fill(incoming) {
+  cfg = Object.assign(cfg, incoming);
+  for (const key of CFG_FIELDS) {
+    const el = document.getElementById(key);
+    if (el && incoming[key] !== undefined && document.activeElement !== el) el.value = incoming[key];
+  }
+  const set = (id, value) => {
+    const el = document.getElementById(id);
+    if (el && document.activeElement !== el) el.value = value;
+  };
+  set("th", incoming.target_hour ?? 8);
+  set("tm", incoming.target_minute ?? 30);
+  set("ts", incoming.target_second ?? 0);
+  set("tms", incoming.target_millis ?? 0);
+  // کادر نماد عمداً خالی می‌ماند تا هر بار آگاهانه انتخاب شود.
+  if (incoming.limit_price) set("priceBox", incoming.limit_price);
+  const quantityBox = document.getElementById("quantity");
+  if (!Number(quantityBox.value)) quantityBox.value = incoming.quantity || "";
+  setSide(incoming.side || "buy", true);
+  setMode(incoming.price_mode || "upper_band", true);
+  setFireMode(incoming.fire_mode || "until_stop", true);
+}
+
+function setSide(side, quiet) {
+  cfg.side = side;
+  const seg = document.getElementById("sideSeg");
+  seg.classList.toggle("sell", side === "sell");
+  [...seg.children].forEach((b, i) => b.classList.toggle("on", i === (side === "buy" ? 0 : 1)));
+  if (!quiet) applyPrice();
+}
+
+// روش ارسال: پیوسته تا توقف دستی، یا تعداد مشخص.
+function setFireMode(mode, quiet) {
+  cfg.fire_mode = mode;
+  const order = ["until_stop", "count"];
+  [...document.getElementById("fireSeg").children]
+    .forEach((b, i) => b.classList.toggle("on", order[i] === mode));
+  document.getElementById("countField").classList.toggle("hidden", mode !== "count");
+}
+
+function setMode(mode, quiet) {
+  cfg.price_mode = mode;
+  const order = ["upper_band", "lower_band", "limit"];
+  [...document.getElementById("modeSeg").children]
+    .forEach((b, i) => b.classList.toggle("on", order[i] === mode));
+  document.getElementById("priceBox").readOnly = mode !== "limit";
+  if (!quiet) applyPrice();
+}
+
+function applyPrice() {
+  const box = document.getElementById("priceBox");
+  if (cfg.price_mode === "upper_band" && limits.upper_price) box.value = Math.round(limits.upper_price);
+  else if (cfg.price_mode === "lower_band" && limits.lower_price) box.value = Math.round(limits.lower_price);
+}
+
+// کلیک روی «حداکثر تعداد مجاز» همان عدد را در کادر حجم می‌گذارد.
+// ساعت هدف را می‌گذارد.
+function setTarget(h, m, sec) {
+  document.getElementById("th").value = h;
+  document.getElementById("tm").value = m;
+  document.getElementById("ts").value = sec;
+  document.getElementById("tms").value = 0;
+}
+
+// چند ثانیهٔ دیگر، بر اساس ساعت کارگزار نه ساعت ویندوز.
+function setTargetSoon(seconds) {
+  const base = serverNowAtPoll > 0
+    ? new Date(serverNowAtPoll + (performance.now() - perfAtPoll) + seconds * 1000)
+    : new Date(Date.now() + seconds * 1000);
+  setTarget(base.getHours(), base.getMinutes(), base.getSeconds());
+}
+
+function useMaxQuantity() {
+  if (!limits.max_quantity) return;
+  document.getElementById("quantity").value = Math.round(limits.max_quantity);
+}
+
+function useLimit(which) {
+  const value = which === "upper" ? limits.upper_price
+    : which === "lower" ? limits.lower_price : limits.last_price;
+  if (!value) return;
+  setMode("limit");
+  document.getElementById("priceBox").value = Math.round(value);
+}
+
+// ------------------------------------------------------------ جست‌وجوی نماد
+
+function onSearchInput() {
+  clearTimeout(searchTimer);
+  // تا وقتی از فهرست انتخاب نشده، نماد معتبر نداریم.
+  if (cfg.symbol !== document.getElementById("symbolBox").value.trim()) {
+    cfg.isin = "";
+    const note = document.getElementById("symbolNote");
+    note.textContent = "نمادی انتخاب نشده — یکی از فهرست انتخاب کنید";
+    note.className = "note";
+  }
+  const term = document.getElementById("symbolBox").value.trim();
+  if (term.length < 1) { hideResults(); return; }
+  searchTimer = setTimeout(() => runSearch(term), 180);
+}
+
+async function runSearch(term) {
+  try {
+    const res = await api("/api/search?q=" + encodeURIComponent(term));
+    if (!res.ok) { showMessage(res.error); return; }
+    hits = res.hits || [];
+    renderResults();
+  } catch (err) { showMessage(err.message); }
+}
+
+function renderResults() {
+  const box = document.getElementById("results");
+  if (!hits.length) { hideResults(); return; }
+  box.innerHTML = hits.map((h, i) =>
+    `<div class="${i === activeIndex ? "active" : ""}" onclick="pick(${i})">
+       <b>${escapeHtml(h.symbol || "—")}</b><small>${escapeHtml(h.name || "")}</small></div>`).join("");
+  box.classList.remove("hidden");
+}
+
+function hideResults() {
+  document.getElementById("results").classList.add("hidden");
+  activeIndex = -1;
+}
+
+function onSearchKey(event) {
+  if (event.key === "ArrowDown") { activeIndex = Math.min(activeIndex + 1, hits.length - 1); renderResults(); event.preventDefault(); }
+  else if (event.key === "ArrowUp") { activeIndex = Math.max(activeIndex - 1, 0); renderResults(); event.preventDefault(); }
+  else if (event.key === "Enter") {
+    // اگر چیزی انتخاب نشده، اولین نتیجه را برمی‌داریم تا کاربر بی‌نماد نماند.
+    if (hits.length) pick(activeIndex >= 0 ? activeIndex : 0);
+    event.preventDefault();
+  }
+  else if (event.key === "Escape") hideResults();
+}
+
+async function pick(index) {
+  const hit = hits[index];
+  if (!hit) return;
+  cfg.isin = hit.isin;
+  cfg.symbol = hit.symbol;
+  cfg.symbol_name = hit.name || "";
+  document.getElementById("symbolBox").value = hit.symbol;
+  const note = document.getElementById("symbolNote");
+  note.textContent = `انتخاب شد: ${hit.symbol}${hit.name ? " — " + hit.name : ""} (${hit.isin})`;
+  note.className = "note good";
+  hideResults();
+  await loadLimits();
+}
+
+async function loadLimits() {
+  document.getElementById("limitNote").textContent = "در حال گرفتن سقف و کف از کارگزاری…";
+  try {
+    const res = await api("/api/instrument", {isin: cfg.isin});
+    if (!res.ok) { document.getElementById("limitNote").textContent = res.error; return; }
+    limits = res.limits || {};
+    renderLimits();
+    applyPrice();
+  } catch (err) {
+    document.getElementById("limitNote").textContent = err.message;
+  }
+}
+
+function renderLimits() {
+  const fmt = v => v ? Math.round(v).toLocaleString("en-US") : "—";
+  document.getElementById("lUpper").textContent = fmt(limits.upper_price);
+  document.getElementById("lLower").textContent = fmt(limits.lower_price);
+  document.getElementById("lLast").textContent = fmt(limits.last_price);
+  document.getElementById("lMaxQty").textContent = fmt(limits.max_quantity);
+  document.getElementById("lMinQty").textContent = fmt(limits.min_quantity);
+  document.getElementById("lTick").textContent = limits.tick ? Math.round(limits.tick) : "—";
+  const note = document.getElementById("limitNote");
+  if (limits.upper_price) {
+    let text = "از کارگزاری گرفته شد.";
+    if (limits.max_quantity) text += " سقف حجم: " + Math.round(limits.max_quantity).toLocaleString("en-US");
+    if (limits.tick > 1) text += " · گام قیمت: " + limits.tick;
+    note.textContent = text;
+  } else if (cfg.isin) {
+    note.textContent = "سقف و کف در پاسخ کارگزار پیدا نشد؛ از «تنظیمات پیشرفته» درخواست درست را انتخاب کنید.";
+  }
+}
+
+// ------------------------------------------------------------------ کنش‌ها
+
+async function openEasyTrader() {
+  const btn = document.getElementById("openBtn");
+  btn.disabled = true; btn.textContent = "در حال باز کردن…";
+  try {
+    const res = await api("/api/browser", collect());
+    if (!res.ok) showMessage(res.error);
+  } catch (err) { showMessage(err.message); }
+  btn.disabled = false; btn.textContent = "باز کردن ایزی‌تریدر";
+}
+
+async function stopBrowser() { await api("/api/browser/stop", {}); }
+
+async function syncClock() {
+  document.getElementById("clockText").textContent = "در حال همگام‌سازی…";
+  try {
+    const res = await api("/api/sync", collect());
+    document.getElementById("clockText").textContent = res.text;
+  } catch (err) { document.getElementById("clockText").textContent = err.message; }
+}
+
+async function checkOrder() {
+  try {
+    const res = await api("/api/check", collect());
+    if (!res.ok) { showMessage("✗ " + (res.problems || []).join("\n✗ ")); return; }
+    const lines = [
+      "✓ سفارش سالم است",
+      `${cfg.side === "buy" ? "خرید" : "فروش"} ${cfg.symbol} — ${Number(cfg.quantity).toLocaleString("en-US")} سهم`,
+      "قیمت: " + res.price.toLocaleString("en-US") + " ریال",
+      "ارزش کل: " + res.value.toLocaleString("en-US") + " ریال",
+      "لحظهٔ هدف: " + res.target,
+    ];
+    if (res.rtt_ms) lines.push(`تأخیر شبکه: ${res.rtt_ms.toFixed(0)} ms → پیش‌فرست ${res.lead_ms.toFixed(0)} ms`);
+    showMessage(lines.join("\n"), "good");
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+async function confirmSend(actionText) {
+  const check = await api("/api/check", collect());
+  if (!check.ok) { showMessage("✗ " + (check.problems || []).join("\n✗ "), "bad"); return false; }
+  const side = cfg.side === "buy" ? "خرید" : "فروش";
+  const how = cfg.fire_mode === "count"
+    ? `${Number(cfg.retries).toLocaleString("en-US")} ارسال با فاصلهٔ ${cfg.retry_gap_ms} میلی‌ثانیه`
+    : `ارسال پیوسته تا وقتی خودتان متوقف کنید (فاصلهٔ ${cfg.retry_gap_ms} میلی‌ثانیه)`;
+  return confirm(`${actionText}\n\n${side} ${cfg.symbol}\n` +
+    `${Number(cfg.quantity).toLocaleString("en-US")} سهم در ${check.price.toLocaleString("en-US")} ریال\n` +
+    `ارزش کل ${check.value.toLocaleString("en-US")} ریال\n\n${how}\n\nادامه می‌دهید؟`);
+}
+
+async function toggleArm() {
+  if (running) { await api("/api/cancel", {}); return; }
+  // لحظهٔ فشردن دکمه همین‌جا ثبت می‌شود: بررسی سفارش و پنجرهٔ تأیید چند ثانیه
+  // وقت می‌گیرند و بدون این، هدفی که فقط چند ثانیه فاصله دارد از دست می‌رفت.
+  const clickedAt = performance.now();
+  if (!(await confirmSend("مسلح کردن برای ارسال واقعی"))) return;
+  const payload = collect();
+  payload.click_ago_ms = Math.max(0, Math.round(performance.now() - clickedAt));
+  const res = await api("/api/arm", payload);
+  delete cfg.click_ago_ms;
+  if (!res.ok) showMessage(res.error, "bad");
+}
+
+async function sendNow() {
+  if (!(await confirmSend("ارسال فوری سفارش"))) return;
+  const res = await api("/api/send-now", collect());
+  showMessage(res.summary || res.error, res.ok ? "good" : "bad");
+}
+
+// گزارش تشخیصی: مسیرها و پیش‌نمایش پاسخ‌ها، بدون توکن و بدون رمز.
+// هر نشانی TSETMC را جدا امتحان می‌کند و نتیجه را جدول‌وار نشان می‌دهد.
+async function testTsetmc() {
+  const btn = document.getElementById("tseTestBtn");
+  btn.disabled = true; btn.textContent = "در حال تست…";
+  try {
+    const res = await api("/api/symbols/tsetmc/test", {});
+    const lines = (res.probes || []).map(p => {
+      const head = p.selected ? "✓" : (p.symbols ? "•" : "✗");
+      const detail = p.error
+        ? "خطا: " + p.error
+        : `HTTP ${p.status} — ${p.bytes.toLocaleString("en-US")} بایت — ${p.symbols.toLocaleString("en-US")} نماد — ${p.millis} ms`;
+      return `${head} ${p.url}\n    ${detail}`;
+    });
+    showMessage(lines.join("\n") || "نشانی‌ای تنظیم نشده", "good");
+  } catch (err) { showMessage("✗ " + err.message, "bad"); }
+  btn.disabled = false; btn.textContent = "تست نشانی‌ها";
+}
+
+async function refreshTsetmc() {
+  const btn = document.getElementById("tseBtn");
+  btn.disabled = true; btn.textContent = "در حال گرفتن…";
+  try {
+    const res = await api("/api/symbols/tsetmc", {});
+    showMessage(res.ok ? `✓ ${res.count.toLocaleString("en-US")} نماد از TSETMC گرفته شد` : "✗ " + res.error,
+      res.ok ? "good" : "bad");
+  } catch (err) { showMessage("✗ " + err.message, "bad"); }
+  btn.disabled = false; btn.textContent = "گرفتن از TSETMC";
+}
+
+async function refreshSymbols() {
+  const btn = document.getElementById("symBtn");
+  btn.disabled = true; btn.textContent = "در حال گرفتن…";
+  try {
+    const res = await api("/api/symbols/refresh", {});
+    showMessage(res.ok ? `✓ ${res.count.toLocaleString("en-US")} نماد گرفته شد` : "✗ " + res.error,
+      res.ok ? "good" : "bad");
+  } catch (err) { showMessage("✗ " + err.message, "bad"); }
+  btn.disabled = false;
+}
+
+async function downloadDiagnostics() {
+  try {
+    const res = await fetch("/api/diagnostics", {headers: {"X-Sarkhati-Token": TOKEN}});
+    const blob = await res.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "sarkhati-diagnostics.json";
+    link.click();
+    URL.revokeObjectURL(link.href);
+    showMessage("گزارش ذخیره شد. توکن و رمزی در آن نیست.", "good");
+  } catch (err) { showMessage("✗ " + err.message, "bad"); }
+}
+
+async function importCurl() {
+  const text = document.getElementById("curlBox").value.trim();
+  if (!text) return;
+  try {
+    const res = await api("/api/import-curl", {text, kind: document.getElementById("curlKind").value});
+    if (res.ok) {
+      showMessage("✓ به‌عنوان «" + res.kind + "» ثبت شد", "good");
+      document.getElementById("curlBox").value = "";
+    } else showMessage("✗ " + res.error, "bad");
+  } catch (err) { showMessage("✗ " + err.message, "bad"); }
+}
+
+async function loadCaptured() {
+  const res = await api("/api/captured");
+  const table = document.getElementById("capturedTable");
+  table.innerHTML = (res.requests || []).map(r => `<tr>
+      <td>${escapeHtml(r.method)}</td>
+      <td class="u">${escapeHtml(r.path)}</td>
+      <td>${escapeHtml(r.kind === "other" ? "" : r.kind)}</td>
+      <td class="u" style="max-width:220px">${escapeHtml((r.preview || "").slice(0, 90))}</td>
+      <td>
+        <button class="btn" style="padding:3px 8px;font-size:11px" onclick="useAs('${escapeAttr(r.url)}','search')">جست‌وجو</button>
+        <button class="btn" style="padding:3px 8px;font-size:11px" onclick="useAs('${escapeAttr(r.url)}','instrument')">اطلاعات نماد</button>
+        <button class="btn" style="padding:3px 8px;font-size:11px" onclick="useAs('${escapeAttr(r.url)}','order')">سفارش</button>
+      </td></tr>`).join("");
+}
+
+async function useAs(url, kind) {
+  const res = await api("/api/use-as", {url, kind});
+  showMessage(res.ok ? "ثبت شد" : res.error, res.ok ? "good" : "bad");
+  loadCaptured();
+}
+
+// ------------------------------------------------------------------ وضعیت
+
+/* ----------------------------------------------- حساب‌های دیگر */
+
+let accounts = [];
+
+function renderAccounts(list) {
+  accounts = list || [];
+  const box = document.getElementById("accountsList");
+  if (!accounts.length) {
+    box.innerHTML = `<div class="note">هنوز حساب دیگری تعریف نشده است. سفارش فقط برای همان
+      حسابی می‌رود که در پنجرهٔ ایزی‌تریدر باز است.</div>`;
+    return;
+  }
+  box.innerHTML = accounts.map(account => {
+    const state = account.ready
+      ? (account.expired
+          ? `<span class="chip bad">توکن منقضی — دوباره وارد شوید</span>`
+          : `<span class="chip on">آماده${account.token_ttl ? " · " + escapeHtml(account.token_ttl) : ""}</span>`)
+      : `<span class="chip bad">${escapeHtml(account.missing || "ناقص")}</span>`;
+    return `<div class="row" style="align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+      <label style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+        <input type="checkbox" ${account.enabled ? "checked" : ""}
+               onchange="setAccountEnabled('${account.id}', this.checked)"> فعال
+      </label>
+      <input value="${escapeHtml(account.name)}" style="min-width:120px"
+             onchange="renameAccount('${account.id}', this.value)">
+      ${state}
+      <span class="note" style="direction:ltr">${escapeHtml(account.order_host || "")}</span>
+      <input type="number" dir="ltr" min="0" placeholder="حجم اختصاصی" style="width:120px"
+             value="${account.quantity || ""}"
+             onchange="setAccountQuantity('${account.id}', this.value)">
+      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="openAccount('${account.id}')">ورود / پنجره</button>
+      <button class="btn" style="padding:4px 10px;font-size:12px" onclick="captureAccount('${account.id}')">ذخیرهٔ این حساب</button>
+      <button class="btn stop" style="padding:4px 10px;font-size:12px" onclick="deleteAccount('${account.id}')">حذف</button>
+    </div>`;
+  }).join("");
+}
+
+async function addAccount() {
+  const box = document.getElementById("newAccountName");
+  const name = box.value.trim();
+  try {
+    const res = await api("/api/accounts/add", {name, open: true});
+    if (!res.ok) return showMessage(res.error, "bad");
+    box.value = "";
+    renderAccounts(res.accounts);
+    if (res.warning) return showMessage("حساب ساخته شد، ولی پنجره باز نشد: " + res.warning, "bad");
+    showMessage("پنجرهٔ حساب تازه باز شد. وارد همان حساب شوید، یک‌بار پنجرهٔ ثبت سفارش را باز کنید و بعد «ذخیرهٔ این حساب» را بزنید.", "good");
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+async function openAccount(id) {
+  try {
+    const res = await api("/api/accounts/open", {id});
+    showMessage(res.ok ? "پنجرهٔ این حساب باز شد؛ وارد شوید و بعد «ذخیرهٔ این حساب» را بزنید." : res.error,
+      res.ok ? "good" : "bad");
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+async function captureAccount(id) {
+  try {
+    const res = await api("/api/accounts/capture", {id});
+    if (!res.ok) return showMessage(res.error, "bad");
+    renderAccounts(res.accounts);
+    showMessage("این حساب ذخیره شد و سرِ ساعت هم‌زمان سفارش می‌گیرد.", "good");
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+async function updateAccount(id, patch) {
+  try {
+    const res = await api("/api/accounts/update", Object.assign({id}, patch));
+    if (!res.ok) return showMessage(res.error, "bad");
+    renderAccounts(res.accounts);
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+function setAccountEnabled(id, enabled) { updateAccount(id, {enabled}); }
+function renameAccount(id, name) { updateAccount(id, {name}); }
+function setAccountQuantity(id, value) { updateAccount(id, {quantity: Number(value || 0)}); }
+
+async function deleteAccount(id) {
+  const account = accounts.find(a => a.id === id);
+  if (!confirm(`حساب «${account ? account.name : id}» حذف شود؟`)) return;
+  try {
+    const res = await api("/api/accounts/delete", {id});
+    if (!res.ok) return showMessage(res.error, "bad");
+    renderAccounts(res.accounts);
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+/* ----------------------------------------------- عیب‌یابی و فایل تنظیمات */
+
+let selfTestReport = "";
+
+async function runSelfTest() {
+  const box = document.getElementById("selftest");
+  box.innerHTML = `<div class="note">در حال آزمایش…</div>`;
+  try {
+    const res = await api("/api/selftest", {});
+    selfTestReport = res.report || "";
+    const mark = {ok: "✓", warn: "!", bad: "✗"};
+    const color = {ok: "var(--good, #34d399)", warn: "#fbbf24", bad: "#f87171"};
+    box.innerHTML = (res.checks || []).map(check => `
+      <div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+        <div><b style="color:${color[check.level]}">${mark[check.level]}</b>
+          <b>${escapeHtml(check.name)}</b> —
+          <span style="direction:ltr;unicode-bidi:plaintext">${escapeHtml(check.detail)}</span></div>
+        ${check.fix ? `<div class="note" style="margin-top:2px">راه‌حل: ${escapeHtml(check.fix)}</div>` : ""}
+      </div>`).join("");
+  } catch (err) { box.innerHTML = `<div class="note">عیب‌یابی انجام نشد: ${escapeHtml(err.message)}</div>`; }
+}
+
+async function copySelfTest() {
+  if (!selfTestReport) { showMessage("اول عیب‌یابی را اجرا کنید.", "bad"); return; }
+  try {
+    await navigator.clipboard.writeText(selfTestReport);
+    showMessage("گزارش عیب‌یابی کپی شد؛ همین را بفرستید.", "good");
+  } catch (err) { showMessage(selfTestReport, ""); }
+}
+
+async function exportConfig() {
+  try {
+    const res = await fetch("/api/config/export", {headers: {"X-Sarkhati-Token": TOKEN}});
+    if (!res.ok) throw new Error(await res.text());
+    const blob = await res.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "sarkhati-config.json";
+    link.click();
+    URL.revokeObjectURL(link.href);
+    showMessage("فایل تنظیمات ذخیره شد؛ همین فایل را روی کامپیوتر دیگر «خواندن فایل تنظیمات» کنید.", "good");
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+async function importConfig(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = "";
+  if (!file) return;
+  try {
+    const res = await api("/api/config/import", JSON.parse(await file.text()));
+    if (!res.ok) return showMessage(res.error, "bad");
+    fill(res.config);
+    renderAccounts(res.accounts);
+    showMessage("تنظیمات خوانده شد. برای ارسال، یک‌بار وارد حساب شوید تا توکن تازه گرفته شود.", "good");
+  } catch (err) { showMessage("فایل خوانده نشد: " + err.message, "bad"); }
+}
+
+async function applyDefaults() {
+  if (!confirm("عددهای تنظیمی (فاصلهٔ ارسال، اتصال موازی، پیش‌فرست، سقف مدت) به پیش‌فرض نسخهٔ جدید برگردد؟\n\nیادگرفته‌ها، حساب‌ها، نماد و ساعت هدف دست‌نخورده می‌ماند.")) return;
+  try {
+    const res = await api("/api/config/defaults", {});
+    if (!res.ok) return showMessage(res.error, "bad");
+    fill(res.config);
+    showMessage("پیش‌فرض‌های نسخهٔ جدید اعمال شد.", "good");
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+async function resetLearned() {
+  if (!confirm("هر چیزی که از کارگزاری یاد گرفته شده (نشانی سفارش، قالب، توکن) پاک شود؟\n\nبرای سوئیچ به حساب یا کارگزاری دیگر لازم است.")) return;
+  await resetConfig("learned");
+}
+
+async function resetAll() {
+  if (!confirm("همهٔ تنظیمات و همهٔ حساب‌های تعریف‌شده پاک شود؟ این کار برگشت‌پذیر نیست.")) return;
+  await resetConfig("all");
+}
+
+async function resetConfig(scope) {
+  try {
+    const res = await api("/api/config/reset", {scope});
+    if (!res.ok) return showMessage(res.error, "bad");
+    fill(res.config);
+    renderAccounts(res.accounts);
+    showMessage("انجام شد.", "good");
+  } catch (err) { showMessage(err.message, "bad"); }
+}
+
+function renderPaths(paths) {
+  if (!paths) return;
+  document.getElementById("pathsNote").innerHTML =
+    `نسخهٔ برنامه <b>${escapeHtml(paths.version || "")}</b> · فایل تنظیمات:
+     <span style="direction:ltr;unicode-bidi:plaintext">${escapeHtml(paths.config || "")}</span>
+     <br>پوشهٔ کاری: ${escapeHtml(paths.data_dir_note || "")}`;
+
+  const card = document.getElementById("bannerCard");
+  const text = document.getElementById("bannerText");
+  const actions = document.getElementById("bannerActions");
+  if (paths.save_error) {
+    card.style.display = "";
+    text.textContent = paths.save_error + " — تنظیمات این اجرا ذخیره نمی‌شود. «اجرای عیب‌یابی» را بزنید.";
+    actions.innerHTML = `<button class="btn" onclick="runSelfTest()">اجرای عیب‌یابی</button>`;
+    return;
+  }
+  if (paths.older_version) {
+    card.style.display = "";
+    text.textContent = `تنظیمات روی این کامپیوتر با نسخهٔ ${paths.config_version} ذخیره شده و برنامه نسخهٔ ${paths.version} است؛ عددهای تنظیمیِ قدیمی همان‌طور مانده‌اند.`;
+    actions.innerHTML = `<button class="btn primary" onclick="applyDefaults()">اعمال پیش‌فرض‌های نسخهٔ جدید</button>`;
+    return;
+  }
+  card.style.display = "none";
+}
+
+function showMessage(text, cls) {
+  const el = document.getElementById("log");
+  el.textContent = text;
+  el.className = cls || "";
+  // خطاها را به برنامه هم می‌گوییم تا در گزارش تشخیصی بمانند.
+  if (cls === "bad") {
+    api("/api/log", {text}).catch(() => {});
+  }
+}
+
+function formatRemaining(ms) {
+  if (ms <= 0) return "00:00.000";
+  const pad = (n, w) => String(n).padStart(w, "0");
+  const hours = Math.floor(ms / 3600000), minutes = Math.floor((ms % 3600000) / 60000);
+  const seconds = Math.floor((ms % 60000) / 1000), millis = Math.floor(ms % 1000);
+  if (hours > 0) return `${hours}:${pad(minutes,2)}:${pad(seconds,2)}`;
+  return `${pad(minutes,2)}:${pad(seconds,2)}.${pad(millis,3)}`;
+}
+
+function tick() {
+  // ساعت زندهٔ کارگزار؛ بین دو نمونه‌گیری با performance.now میان‌یابی می‌شود.
+  if (serverNowAtPoll > 0) {
+    const now = new Date(serverNowAtPoll + (performance.now() - perfAtPoll));
+    const pad = (n, w) => String(n).padStart(w, "0");
+    document.getElementById("pClock").textContent =
+      `${pad(now.getHours(),2)}:${pad(now.getMinutes(),2)}:${pad(now.getSeconds(),2)}.${pad(now.getMilliseconds(),3)}`;
+  }
+  // لحظهٔ واقعی ارسال با پیش‌فرست جابه‌جا می‌شود؛ همان را صریح می‌نویسیم.
+  const leadMs = Number(document.getElementById("lead_ms")?.value ?? -1);
+  const pad2 = n => String(n).padStart(2, "0");
+  const note = document.getElementById("fireNote");
+  if (note) {
+    const t = `${pad2(document.getElementById("th").value||0)}:${pad2(document.getElementById("tm").value||0)}` +
+      `:${pad2(document.getElementById("ts").value||0)}.${String(document.getElementById("tms").value||0).padStart(3,"0")}`;
+    note.textContent = leadMs >= 0
+      ? `هدف ${t} — با پیش‌فرست ${leadMs} میلی‌ثانیه، ارسال کمی زودتر انجام می‌شود`
+      : `هدف ${t} — پیش‌فرست خودکار (نصف زمان رفت‌وبرگشت تا کارگزار)`;
+  }
+
+  const box = document.getElementById("countdown");
+  if (box.dataset.firing) return requestAnimationFrame(tick);
+  if (running && targetEpochMs > 0 && serverNowAtPoll > 0) {
+    box.textContent = formatRemaining(targetEpochMs - (serverNowAtPoll + (performance.now() - perfAtPoll)));
+  } else if (!running && !box.dataset.done) {
+    // وقتی مسلح نیستیم، خودِ ساعت هدف را نشان می‌دهیم تا معلوم باشد کی شلیک می‌شود.
+    const pad = (id, w) => String(document.getElementById(id).value || 0).padStart(w, "0");
+    box.textContent = `${pad("th",2)}:${pad("tm",2)}:${pad("ts",2)}`;
+  }
+  requestAnimationFrame(tick);
+}
+
+function renderCapture(capture) {
+  const setDot = (id, on, bad) => {
+    const el = document.getElementById(id);
+    el.className = "dot" + (bad ? " bad" : on ? " on" : "");
+  };
+  setDot("pBrowser", capture.browser_running);
+  setDot("pLogin", capture.logged_in, capture.token_expired);
+  setDot("pApi", !!capture.order_path);
+
+  document.getElementById("pToken").textContent = capture.token_preview
+    ? (capture.token_expired ? "توکن منقضی" : "توکن " + (capture.token_ttl || "فعال"))
+    : "توکن —";
+
+  document.getElementById("st1").classList.toggle("done", capture.browser_running);
+  document.getElementById("st2").classList.toggle("done", capture.logged_in);
+  document.getElementById("st3").classList.toggle("done", !!capture.ready);
+  const searchChip = document.getElementById("chSearch");
+  searchChip.classList.toggle("on", !!capture.can_search);
+  const symBtn = document.getElementById("symBtn");
+  // دکمه همیشه در دسترس می‌ماند: اگر جدول ناقص باشد، کاربر باید بتواند
+  // دستی فهرست کامل را بگیرد.
+  symBtn.classList.toggle("hidden", !capture.can_list_symbols);
+  symBtn.textContent = capture.symbols_full ? "به‌روزرسانی فهرست نمادها" : "گرفتن فهرست نمادها";
+  // منبع فهرست نمادها را شفاف نشان می‌دهیم تا معلوم باشد از کجا آمده.
+  const tseNote = document.getElementById("tseNote");
+  if (capture.tsetmc_error) {
+    tseNote.textContent = "TSETMC: " + capture.tsetmc_error;
+    tseNote.className = "note bad";
+  } else if (capture.tsetmc_count) {
+    tseNote.textContent = `فهرست از TSETMC: ${capture.tsetmc_count.toLocaleString("en-US")} نماد`;
+    tseNote.className = "note good";
+  } else {
+    tseNote.textContent = "";
+  }
+  searchChip.textContent = capture.symbol_count
+    ? `جست‌وجوی نماد (${capture.symbol_count.toLocaleString("en-US")} نماد)`
+    : "جست‌وجوی نماد";
+  document.getElementById("chQuote").classList.toggle("on", !!capture.can_quote);
+  const orderChip = document.getElementById("chOrder");
+  orderChip.classList.toggle("on", !!capture.can_order);
+  orderChip.title = capture.order_url
+    ? "مسیر یادگرفته‌شده: " + capture.order_url
+    : "هنوز یاد گرفته نشده — یک‌بار در ایزی‌تریدر سفارش ثبت کنید";
+
+  const hint = document.getElementById("hint");
+  hint.textContent = capture.hint || "";
+  hint.classList.toggle("ok", !!capture.ready);
+}
+
+let firstLoad = true;
+async function poll() {
+  try {
+    const res = await api("/api/state");
+    if (firstLoad) { fill(res.config); firstLoad = false; }
+    else {
+      // مقادیر یادگرفته‌شده را زنده به‌روز نگه می‌داریم بدون دست‌زدن به فرم کاربر
+      for (const key of ["base_url", "order_path", "order_url", "payload_template",
+                         "side_buy", "side_sell"]) {
+        const el = document.getElementById(key);
+        if (el && document.activeElement !== el && res.config[key]) el.value = res.config[key];
+      }
+    }
+    renderCapture(res.capture || {});
+    // حساب‌ها فقط وقتی دست‌کاری نمی‌شوند دوباره کشیده می‌شوند، وگرنه تایپِ
+    // کاربر داخل نام یا حجم حساب وسط کار پاک می‌شد.
+    if (!document.activeElement || !document.getElementById("accountsList").contains(document.activeElement)) {
+      renderAccounts(res.accounts || []);
+    }
+    renderPaths(res.paths);
+    if (res.limits && res.limits.upper_price && !limits.upper_price) {
+      limits = res.limits;
+      renderLimits();
+      applyPrice(); // قیمت سقف/کف را در کادر بگذار، حتی اگر صفحه تازه باز شده باشد
+    }
+
+    const state = res.state;
+    running = state.running;
+    targetEpochMs = state.target_epoch_ms;
+    serverNowAtPoll = res.server_now;
+    perfAtPoll = performance.now();
+    if (state.clock_text) document.getElementById("clockText").textContent = state.clock_text;
+    if (res.clock_source) document.getElementById("pClock").title = "منبع: " + res.clock_source;
+
+    const armBtn = document.getElementById("armBtn");
+    if (running && state.attempts > 0) {
+      armBtn.textContent = `توقف ارسال (${state.attempts.toLocaleString("en-US")} تلاش)`;
+    } else {
+      armBtn.textContent = running ? "لغو" : "مسلح کردن برای ساعت هدف";
+    }
+    armBtn.className = "btn wide " + (running ? "stop" : "primary");
+
+    // در حین شلیک، به‌جای شمارش معکوس تعداد تلاش‌ها را نشان می‌دهیم.
+    if (running && state.attempts > 0) {
+      const box = document.getElementById("countdown");
+      box.textContent = state.attempts.toLocaleString("en-US");
+      box.dataset.firing = "1";
+    } else {
+      delete document.getElementById("countdown").dataset.firing;
+    }
+
+    // نرخ زندهٔ ارسال: مهم‌ترین عددِ سرخطی.
+    const rateLine = document.getElementById("rateLine");
+    if (state.rate_hz > 0 || state.connections > 0) {
+      const parts = [];
+      if (state.rate_hz > 0) parts.push(`${Math.round(state.rate_hz)} ارسال در ثانیه`);
+      if (state.connections > 0) parts.push(`${state.connections} اتصال موازی`);
+      if (state.skipped > 0) parts.push(`${state.skipped.toLocaleString("en-US")} جاافتاده`);
+      rateLine.textContent = parts.join(" · ");
+      rateLine.style.display = "";
+    } else {
+      rateLine.style.display = "none";
+    }
+
+    if (state.log && state.log.length) {
+      const el = document.getElementById("log");
+      el.textContent = state.log.join("\n");
+      el.className = "";
+      el.scrollTop = el.scrollHeight;
+    }
+    const box = document.getElementById("countdown");
+    if (!running && state.finished) {
+      box.dataset.done = "1";
+      box.textContent = state.accepted ? "انجام شد" : "پایان";
+    } else if (running) {
+      delete box.dataset.done;
+    }
+  } catch (err) {
+    document.getElementById("clockText").textContent = "ارتباط با برنامه قطع شد — پنجرهٔ برنامه را ببینید";
+  }
+}
+
+function escapeHtml(text) {
+  return String(text ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+}
+function escapeAttr(text) { return escapeHtml(text).replace(/'/g, "&#39;"); }
+
+document.addEventListener("click", event => {
+  if (!event.target.closest(".search")) hideResults();
+});
+
+poll();
+setInterval(poll, 300);
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
