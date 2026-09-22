@@ -97,6 +97,14 @@ type Config struct {
 	MaxDurationS int    `json:"max_duration_s"` // سقف مدت شلیک پیوسته
 	LeadMs       int    `json:"lead_ms"`        // منفی = خودکار (نصف RTT)
 
+	// PreArmSeconds: چند ثانیه *زودتر* از ساعت هدف شلیک شروع شود.
+	//
+	// کارگزاری‌ها همیشه دقیقاً سر ساعت باز نمی‌کنند و گاهی تا یک دقیقه
+	// زودتر بازند. اگر دقیقاً روی ساعت هدف شلیک کنیم، آن پنجره از دست
+	// می‌رود. با این مقدار، تلاش‌ها از قبل در جریان‌اند و اولین سفارشی که
+	// کارگزاری بپذیرد کار را تمام می‌کند.
+	PreArmSeconds int `json:"pre_arm_seconds"`
+
 	// کارگزار — همه از ایزی‌تریدر یاد گرفته می‌شود
 	Mode            string `json:"mode"` // api | desktop
 	BaseURL         string `json:"base_url"`
@@ -150,6 +158,7 @@ func DefaultConfig() Config {
 		RetryGapMs:    10,
 		MaxDurationS:  180,
 		LeadMs:        -1,
+		PreArmSeconds: 60,
 		Mode:          "api",
 		SuccessMarker: "",
 		Connections:   AutoConnections,
@@ -173,6 +182,7 @@ func (c Config) WithFreshDefaults() Config {
 	fresh.Side, fresh.Quantity = c.Side, c.Quantity
 	fresh.TargetHour, fresh.TargetMinute = c.TargetHour, c.TargetMinute
 	fresh.TargetSecond, fresh.TargetMillis = c.TargetSecond, c.TargetMillis
+	fresh.PreArmSeconds = c.PreArmSeconds
 
 	fresh.Mode, fresh.BaseURL = c.Mode, c.BaseURL
 	fresh.OrderPath, fresh.OrderURL = c.OrderPath, c.OrderURL
@@ -259,6 +269,9 @@ func (c Config) Validate(limits Limits) []string {
 	}
 	if c.RetryGapMs < MinGapMs {
 		problems = append(problems, fmt.Sprintf("فاصلهٔ بین ارسال‌ها کمتر از %d میلی‌ثانیه نباشد", MinGapMs))
+	}
+	if c.PreArmSeconds < 0 || c.PreArmSeconds > 600 {
+		problems = append(problems, "«شروع زودتر» باید بین ۰ تا ۶۰۰ ثانیه باشد")
 	}
 	if c.Connections < 0 || c.Connections > MaxConnections {
 		problems = append(problems, fmt.Sprintf("تعداد اتصال موازی باید بین ۰ (خودکار) تا %d باشد", MaxConnections))

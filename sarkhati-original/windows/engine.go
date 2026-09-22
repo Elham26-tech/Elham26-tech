@@ -296,6 +296,12 @@ func (e *Engine) run(cfg Config, limits Limits, target time.Time) (bool, string)
 	}
 	e.logf("پیش‌فرست %.0f ms", float64(lead)/float64(time.Millisecond))
 
+	// شروع زودتر: کارگزاری ممکن است چند ثانیه زودتر باز کند.
+	preArm := time.Duration(cfg.PreArmSeconds) * time.Second
+	if preArm > 0 {
+		e.logf("شلیک %d ثانیه زودتر از ساعت هدف آغاز می‌شود", cfg.PreArmSeconds)
+	}
+
 	e.mu.Lock()
 	e.state.TargetEpochMs = target.UnixMilli()
 	e.mu.Unlock()
@@ -310,7 +316,7 @@ func (e *Engine) run(cfg Config, limits Limits, target time.Time) (bool, string)
 	}()
 
 	// فاز ۱: انتظار طولانی تا آستانهٔ آماده‌سازی
-	if !e.waitUntil(clock, target.Add(-lead-prepareBefore), true) {
+	if !e.waitUntil(clock, target.Add(-lead-preArm-prepareBefore), true) {
 		return false, "لغو شد"
 	}
 	e.logf("در حال آماده‌سازی…")
@@ -326,7 +332,7 @@ func (e *Engine) run(cfg Config, limits Limits, target time.Time) (bool, string)
 	// اتصالی که چند ثانیه بی‌کار بماند ممکن است از سمت سرور بسته شود؛ آن‌وقت
 	// *اولین* تلاش — که تنها تلاش مهم است — باید دوباره اتصال بسازد و صدها
 	// میلی‌ثانیه دیر می‌رسد.
-	fireAt := target.Add(-lead)
+	fireAt := target.Add(-lead - preArm)
 	lastWarm := time.Now()
 	for !e.cancelled() {
 		remaining := clock.Until(fireAt)

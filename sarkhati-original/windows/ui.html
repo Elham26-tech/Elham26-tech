@@ -350,6 +350,7 @@
         <div class="row">
           <div class="field"><label>نشانهٔ موفقیت در پاسخ</label><input id="success_marker" dir="ltr" placeholder="خالی = هر پاسخ ۲xx"></div>
           <div class="field"><label>پیش‌فرست (ms، ‎-1 = خودکار)</label><input id="lead_ms" type="number" dir="ltr"></div>
+          <div class="field"><label>شروع زودتر (ثانیه)</label><input id="pre_arm_seconds" type="number" dir="ltr" min="0" max="600"></div>
           <div class="field"><label>اتصال موازی (۰ = خودکار)</label><input id="connections" type="number" dir="ltr" min="0" max="16"></div>
         </div>
         <div class="row">
@@ -385,10 +386,10 @@
 
 <script>
 const TOKEN = "__TOKEN__";
-const CFG_FIELDS = ["quantity","retries","retry_gap_ms","max_duration_s","lead_ms","base_url","order_path",
+const CFG_FIELDS = ["quantity","retries","retry_gap_ms","max_duration_s","lead_ms","pre_arm_seconds","base_url","order_path",
   "order_url","payload_template","success_marker","connections","browser_path","portal_url",
   "side_buy","side_sell"];
-const NUMERIC = new Set(["quantity","retries","retry_gap_ms","max_duration_s","lead_ms","connections"]);
+const NUMERIC = new Set(["quantity","retries","retry_gap_ms","max_duration_s","lead_ms","pre_arm_seconds","connections"]);
 
 let cfg = {side: "buy", price_mode: "upper_band", mode: "api", isin: "", symbol: "", symbol_name: ""};
 let limits = {};
