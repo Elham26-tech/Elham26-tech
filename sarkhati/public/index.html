@@ -63,7 +63,7 @@
     </div>
 
     <div class="card-head"><h2>۳ — سمت، تعداد و قیمت</h2></div>
-    <div class="grid-4">
+    <div class="grid-3">
       <label>سمت سفارش
         <select id="side">
           <option value="buy">خرید</option>
@@ -71,13 +71,12 @@
         </select>
       </label>
       <label>قیمت
-        <select id="priceMode">
-          <option value="max">سقف مجاز</option>
-          <option value="min">کف مجاز</option>
-          <option value="manual">دستی</option>
-        </select>
+        <span class="with-btn">
+          <input id="price" type="number" min="0" placeholder="قیمت را بنویسید یا دکمه بزنید" />
+          <button id="btn-price-max" class="mini" title="گذاشتن سقف مجاز در کادر قیمت">سقف</button>
+          <button id="btn-price-min" class="mini" title="گذاشتن کف مجاز در کادر قیمت">کف</button>
+        </span>
       </label>
-      <label><span id="price-label">قیمت دستی</span><input id="price" type="number" min="0" /></label>
       <label>تعداد
         <span class="with-btn">
           <input id="quantity" type="number" min="1" />
@@ -85,7 +84,11 @@
         </span>
       </label>
     </div>
-    <p class="muted">قیمت ارسالی: <b id="effective-price">—</b></p>
+    <p class="muted">
+      قیمت ارسالی: <b id="effective-price">—</b>
+      — با دکمهٔ «سقف» یا «کف»، عدد کارگزاری داخل کادر قیمت می‌نشیند و بعدش
+      هم می‌توانید دستی تغییرش دهید.
+    </p>
 
     <div class="card-head"><h2>۴ — زمان و شلیک</h2></div>
     <div class="grid-3">

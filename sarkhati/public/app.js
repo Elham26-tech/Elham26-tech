@@ -5,7 +5,7 @@
 // دوبارهٔ برنامه وضعیت اجرای قبلی را احیا نمی‌کند.
 
 const FIELDS = [
-  'easyTraderUrl', 'side', 'quantity', 'price', 'priceMode',
+  'easyTraderUrl', 'side', 'quantity', 'price',
   'targetTime', 'targetMillis', 'preArmSeconds',
   'retryGapMs', 'fireSeconds', 'parallel', 'leadMs', 'maxAttempts',
   'capturedIsSell', 'rangePercent',
@@ -54,14 +54,12 @@ function showError(err) {
 }
 
 function collectSettings() {
-  const patch = {};
-  const mode = $('priceMode') ? $('priceMode').value : 'manual';
+  // یک کادر قیمت داریم و همیشه قابل ویرایش است؛ دکمه‌های «سقف» و «کف»
+  // فقط عدد را داخلش می‌گذارند. حالتِ جداگانه‌ای لازم نیست.
+  const patch = { priceMode: 'manual' };
   for (const key of FIELDS) {
     const el = $(key);
     if (!el) continue;
-    // عددی که در حالت سقف/کف نشان داده می‌شود مالِ خودِ کارگزاری است؛
-    // نباید جای قیمتِ دستیِ کاربر ذخیره شود.
-    if (key === 'price' && mode !== 'manual') continue;
     const raw = el.value.trim();
     if (BOOLEAN.has(key)) patch[key] = raw === 'true';
     else patch[key] = NUMERIC.has(key) ? (raw === '' ? null : Number(raw)) : raw;
@@ -258,22 +256,10 @@ function renderInstrument(status) {
       : `ISIN: ${inst.isin}`;
   }
 
-  // در حالت سقف/کف، عددِ واقعی داخل همان فیلد قیمت نشان داده می‌شود تا
-  // کاربر ببیند چه چیزی ارسال می‌شود؛ فقط خواندنی است، نه پنهان.
-  const manual = status.settings.priceMode === 'manual';
-  const priceField = $('price');
-  const priceLabel = $('price-label');
-
-  if (!manual && priceField !== document.activeElement) {
-    priceField.value = status.effectivePrice == null ? '' : String(status.effectivePrice);
-  }
-  priceField.readOnly = !manual;
-  priceField.classList.toggle('auto', !manual);
-  priceLabel.textContent = manual ? 'قیمت دستی'
-    : status.settings.priceMode === 'max' ? 'قیمت (سقف مجاز)' : 'قیمت (کف مجاز)';
-
   $('effective-price').textContent = num(status.effectivePrice);
   $('btn-max-qty').disabled = !(inst && inst.maxQuantity);
+  $('btn-price-max').disabled = !(inst && inst.priceMax);
+  $('btn-price-min').disabled = !(inst && inst.priceMin);
 }
 
 /* ------------------------------------- جست‌وجوی نماد حین تایپ */
@@ -361,6 +347,18 @@ $('symbolQuery').addEventListener('keydown', (event) => {
 document.addEventListener('click', (event) => {
   if (!event.target.closest('.search-wrap')) $('results').hidden = true;
 });
+
+/** عدد سقف یا کف را داخل کادر قیمت می‌گذارد — بعدش قابل ویرایش است */
+function fillPrice(which) {
+  const inst = lastStatus && lastStatus.settings.instrument;
+  const value = inst && (which === 'max' ? inst.priceMax : inst.priceMin);
+  if (!value) return;
+  $('price').value = String(value);
+  saveNow();
+}
+
+$('btn-price-max').addEventListener('click', () => fillPrice('max'));
+$('btn-price-min').addEventListener('click', () => fillPrice('min'));
 
 $('btn-max-qty').addEventListener('click', () => {
   const inst = lastStatus && lastStatus.settings.instrument;
