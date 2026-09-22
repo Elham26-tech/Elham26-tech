@@ -47,7 +47,7 @@ const PROFILE_DIR = path.join(DATA_DIR, 'chrome-profile');
 // -----------------------------------------------------------------------
 
 const DEFAULT_SETTINGS = {
-  easyTraderUrl: 'https://d.easytrader.ir/',
+  easyTraderUrl: 'https://easytrader.ir/',
   symbol: '',
   symbolName: '',
   insCode: '',
@@ -67,7 +67,7 @@ const DEFAULT_SETTINGS = {
 
 // endpoints: درخواست‌های «جست‌وجو» و «اطلاعات نماد» که از خود ایزی‌تریدر
 // یاد گرفته می‌شوند تا بشود دربارهٔ نماد دیگری هم از کارگزار پرسید.
-const DEFAULT_LEARNED = { recipe: null, history: [], endpoints: {} };
+const DEFAULT_LEARNED = { recipe: null, history: [], endpoints: {}, candidates: [] };
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
@@ -141,6 +141,13 @@ function loadLearned() {
   return { ...DEFAULT_LEARNED, ...readJson(LEARNED_FILE, {}) };
 }
 
+function saveCandidates(candidates) {
+  const current = loadLearned();
+  const next = { ...current, candidates };
+  writeJson(LEARNED_FILE, next);
+  return next;
+}
+
 function saveEndpoint(kind, endpoint) {
   const current = loadLearned();
   const next = { ...current, endpoints: { ...current.endpoints, [kind]: endpoint } };
@@ -189,6 +196,7 @@ module.exports = {
   loadLearned,
   saveRecipe,
   saveEndpoint,
+  saveCandidates,
   saveSymbols,
   loadSymbols,
   resetLearned,

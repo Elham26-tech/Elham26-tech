@@ -173,21 +173,58 @@ async function fetchMarketWatch({ urls = DEFAULT_URLS, timeoutMs = 20000 } = {})
   throw new Error(`هیچ‌کدام از نشانی‌های TSETMC پاسخ ندادند — ${reasons}`);
 }
 
-/** جست‌وجوی محلی روی فهرستی که از قبل گرفته شده */
+/**
+ * تفاوت‌های نوشتاری فارسی و عربی را یکسان می‌کند.
+ *
+ * دادهٔ بورس ایران «ی» و «ي»، «ک» و «ك»، نیم‌فاصله و ارقام فارسی/عربی را
+ * قاطی دارد. بدون این یکسان‌سازی، کاربر «عیار» را می‌نویسد و نمادی که در
+ * داده «عيار» ثبت شده پیدا نمی‌شود — یعنی جست‌وجو بی‌دلیل خالی درمی‌آید.
+ */
+const NORMALIZE = new Map(Object.entries({
+  'ي': 'ی', 'ك': 'ک', 'ۀ': 'ه', 'ة': 'ه', 'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا',
+  'ؤ': 'و', 'ئ': 'ی', 'ى': 'ی',
+  '\u200c': ' ', '\u200f': '', '\u200e': '', '\u064b': '', '\u064c': '',
+  '\u064d': '', '\u064e': '', '\u064f': '', '\u0650': '', '\u0651': '', '\u0652': '',
+  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
+}));
+
+function normalizePersian(text) {
+  let out = '';
+  for (const ch of String(text ?? '')) out += NORMALIZE.has(ch) ? NORMALIZE.get(ch) : ch;
+  return out.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * جست‌وجوی محلی روی فهرستی که از قبل گرفته شده.
+ * ترتیب: تطبیق دقیق، بعد شروع‌شونده، بعد دربرگیرنده — و در هر گروه،
+ * نماد کوتاه‌تر اول، چون معمولاً همان چیزی است که کاربر می‌خواهد.
+ */
 function search(rows, term, limit = 20) {
-  const needle = String(term || '').trim();
+  const needle = normalizePersian(term);
   if (!needle) return [];
 
   const exact = [];
   const starts = [];
   const contains = [];
+
   for (const row of rows) {
-    if (row.symbol === needle) exact.push(row);
-    else if (row.symbol.startsWith(needle)) starts.push(row);
-    else if (row.symbol.includes(needle) || row.name.includes(needle)) contains.push(row);
-    if (exact.length + starts.length >= limit) break;
+    const symbol = normalizePersian(row.symbol);
+    const name = normalizePersian(row.name);
+    if (symbol === needle) exact.push(row);
+    else if (symbol.startsWith(needle)) starts.push(row);
+    else if (symbol.includes(needle) || name.includes(needle)) contains.push(row);
   }
+
+  const byLength = (a, b) => a.symbol.length - b.symbol.length;
+  starts.sort(byLength);
+  contains.sort(byLength);
   return [...exact, ...starts, ...contains].slice(0, limit);
 }
 
-module.exports = { DEFAULT_URLS, fetchMarketWatch, search, parse, parseJson, parseText, rowFromObject };
+module.exports = {
+  DEFAULT_URLS, fetchMarketWatch, search, normalizePersian,
+  parse, parseJson, parseText, rowFromObject,
+};

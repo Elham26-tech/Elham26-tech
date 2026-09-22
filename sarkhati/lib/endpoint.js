@@ -138,4 +138,34 @@ function replayableHeaders(headers = {}) {
   return out;
 }
 
-module.exports = { ISIN, looksLikeSearchTerm, build, withValue, replayableHeaders };
+// مسیرهایی که معمولاً مشخصات نماد می‌دهند، در برابر مسیرهایی که فقط داده
+// نمودار می‌دهند. اولی اول امتحان می‌شود.
+const GOOD_PATH = /(instrument|symbol|detail|info|quote|state|bestlimit|watch|security)/i;
+const POOR_PATH = /(chart|history|datafeed|candle|ohlc|minichart|intraday|news|announce)/i;
+
+/** هرچه بیشتر، احتمال اینکه سقف/کف بدهد بیشتر */
+function scoreEndpoint(endpoint) {
+  let path = '';
+  try { path = new URL(endpoint.url).pathname; } catch { path = String(endpoint.url || ''); }
+  let score = 0;
+  if (GOOD_PATH.test(path)) score += 2;
+  if (POOR_PATH.test(path)) score -= 3;
+  if (endpoint.method === 'GET') score += 1;
+  return score;
+}
+
+/** دو نامزد وقتی یکی‌اند که مسیر و پارامترشان یکی باشد */
+function sameEndpoint(a, b) {
+  const base = (e) => {
+    try {
+      const u = new URL(e.url);
+      return `${e.method} ${u.host}${u.pathname} ${e.param}`;
+    } catch { return `${e.method} ${e.url} ${e.param}`; }
+  };
+  return base(a) === base(b);
+}
+
+module.exports = {
+  ISIN, looksLikeSearchTerm, build, withValue, replayableHeaders,
+  scoreEndpoint, sameEndpoint, GOOD_PATH, POOR_PATH,
+};

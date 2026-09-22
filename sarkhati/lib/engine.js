@@ -182,53 +182,87 @@ class Engine {
   }
 
   /**
-   * از ترافیک ایزی‌تریدر، درخواست «اطلاعات نماد» را یاد می‌گیرد تا بعداً
-   * بشود دربارهٔ نماد دیگری هم از خودِ کارگزار پرسید — سقف و کف مجاز و
-   * تعداد مجاز از همان‌جا می‌آید، نه از تخمین.
+   * از ترافیک ایزی‌تریدر، هر درخواستی که کد نماد در آن است را به‌عنوان
+   * «نامزدِ اطلاعات نماد» نگه می‌دارد.
+   *
+   * چرا چند نامزد و نه اولی: صفحهٔ کارگزاری چند درخواستِ حاوی کد نماد
+   * می‌زند و بعضی‌شان فقط دادهٔ نمودارند. نمی‌شود از روی آدرس مطمئن شد
+   * کدام سقف و کف می‌دهد؛ پس همه را نگه می‌داریم و هنگام انتخاب نماد،
+   * به‌ترتیب امتیاز امتحان می‌کنیم تا یکی واقعاً جواب بدهد.
    */
   learnEndpoints(request) {
-    if (this.learned.endpoints && this.learned.endpoints.instrument) return;
-    if (endpointLib.replayableHeaders && !request.url) return;
+    if (!request.url) return;
     if (recipeLib.THIRD_PARTY.test(request.url)) return;
     if (recipeLib.looksLikeOrder(request, { origin: this.settings.easyTraderUrl })) return;
 
     const built = endpointLib.build(request, { isinMode: true });
     if (!built) return;
     built.headers = endpointLib.replayableHeaders(request.headers);
-    this.learned = store.saveEndpoint('instrument', built);
-    this.log(`مسیر اطلاعات نماد از کارگزاری یاد گرفته شد: ${new URL(built.url).pathname}`, 'ok');
+
+    const candidates = [...(this.learned.candidates || [])];
+    if (candidates.some((c) => endpointLib.sameEndpoint(c, built))) return;
+
+    candidates.push(built);
+    candidates.sort((a, b) => endpointLib.scoreEndpoint(b) - endpointLib.scoreEndpoint(a));
+    this.learned = store.saveCandidates(candidates.slice(0, 10));
+
+    let where = built.url;
+    try { where = new URL(built.url).pathname; } catch { /* نشانی غیرعادی */ }
+    this.log(`نامزد اطلاعات نماد ثبت شد: ${where}`, 'info');
     this.persist();
   }
 
-  /**
-   * سقف/کف مجاز و تعداد مجاز را از خودِ کارگزار می‌پرسد: همان درخواستی که
-   * ایزی‌تریدر می‌زند، این بار با کد نماد انتخاب‌شده، از داخل خود صفحه.
-   */
-  async brokerLimits(isin) {
-    const endpoint = this.learned.endpoints && this.learned.endpoints.instrument;
-    if (!endpoint) return null;
+  /** یک نامزد را با کد نماد امتحان می‌کند و سقف/کف را برمی‌گرداند */
+  async tryCandidate(endpoint, isin) {
     const prepared = endpointLib.withValue(endpoint, isin);
     if (!prepared) return null;
 
-    try {
-      const result = await this.browser.replayRequest({
-        method: prepared.method,
-        url: prepared.url,
-        headers: prepared.headers,
-        body: prepared.method === 'GET' ? null : prepared.body,
-      });
-      if (!result.ok) {
-        this.log(`کارگزاری به پرسش اطلاعات نماد پاسخ HTTP ${result.status} داد.`, 'warn');
-        return null;
+    const result = await this.browser.replayRequest({
+      method: prepared.method,
+      url: prepared.url,
+      headers: prepared.headers,
+      body: prepared.method === 'GET' || prepared.method === 'HEAD' ? null : prepared.body,
+    });
+    if (!result.ok) return null;
+
+    let payload;
+    try { payload = JSON.parse(result.text); } catch { return null; }
+    const found = limitsLib.fromResponse(payload);
+    return limitsLib.isUseful(found) ? found : null;
+  }
+
+  /**
+   * سقف/کف مجاز و تعداد مجاز را از خودِ کارگزار می‌پرسد. نامزدِ اثبات‌شده
+   * اول امتحان می‌شود؛ اگر نبود یا جواب نداد، بقیه به‌ترتیب امتیاز.
+   */
+  async brokerLimits(isin) {
+    const proven = this.learned.endpoints && this.learned.endpoints.instrument;
+    const rest = (this.learned.candidates || [])
+      .filter((c) => !proven || !endpointLib.sameEndpoint(c, proven));
+    const queue = proven ? [proven, ...rest] : rest;
+    if (!queue.length) return null;
+
+    for (const candidate of queue) {
+      let found = null;
+      try {
+        found = await this.tryCandidate(candidate, isin);
+      } catch (err) {
+        this.log(`امتحان یک نامزد ناموفق: ${err.message}`, 'info');
       }
-      const payload = JSON.parse(result.text);
-      const limits = limitsLib.fromResponse(payload);
-      this.lastBrokerLimits = { url: prepared.url, limits };
-      return limitsLib.isUseful(limits) ? limits : null;
-    } catch (err) {
-      this.log(`گرفتن سقف/کف از کارگزاری ناموفق: ${err.message}`, 'warn');
-      return null;
+      if (!found) continue;
+
+      if (!proven || !endpointLib.sameEndpoint(candidate, proven)) {
+        this.learned = store.saveEndpoint('instrument', candidate);
+        let where = candidate.url;
+        try { where = new URL(candidate.url).pathname; } catch { /* نشانی غیرعادی */ }
+        this.log(`مسیر اطلاعات نماد پیدا شد: ${where}`, 'ok');
+      }
+      this.lastBrokerLimits = { url: candidate.url, limits: found };
+      return found;
     }
+
+    this.log(`هیچ‌کدام از ${queue.length} نامزد، سقف/کف نداد.`, 'warn');
+    return null;
   }
 
   /** چند تا از درخواست‌هایی که سفارش نبودند را گزارش می‌کند، بدون شلوغ‌کاری */
@@ -317,7 +351,7 @@ class Engine {
         this.log(
           this.learned.endpoints && this.learned.endpoints.instrument
             ? 'کارگزاری سقف/کف نداد؛ فعلاً تخمین از قیمت دیروز استفاده می‌شود.'
-            : 'هنوز مسیر اطلاعات نماد از کارگزاری یاد گرفته نشده؛ در ایزی‌تریدر نماد را باز کنید تا سقف/کف واقعی بیاید.',
+            : 'هنوز درخواستی از کارگزاری دیده نشده؛ در ایزی‌تریدر همین نماد را باز کنید تا سقف/کف واقعی بیاید.',
           'warn',
         );
       }
@@ -614,6 +648,7 @@ class Engine {
       secondsToFireStart: Math.round((this.fireStartTimestamp(now) - now.getTime()) / 1000),
       browserConnected: this.browser.connected,
       hasInstrumentEndpoint: Boolean(this.learned.endpoints && this.learned.endpoints.instrument),
+      candidateCount: (this.learned.candidates || []).length,
       symbolCount: (this.symbols || []).length,
       settings: this.settings,
       effectivePrice: this.effectivePrice() ?? null,

@@ -80,8 +80,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     expression: "window.openInstrument('IRO3LABN0001')", awaitPromise: true, returnByValue: true,
   }, engine.browser.sessionFor('http://127.0.0.1:8899/'));
   await wait(600);
-  if (!engine.status().hasInstrumentEndpoint) return fail('مسیر اطلاعات نماد یاد گرفته نشد');
-  ok('مسیر اطلاعات نماد یاد گرفته شد');
+  if (!engine.status().candidateCount) return fail('هیچ نامزدی برای اطلاعات نماد ثبت نشد');
+  ok(`نامزد اطلاعات نماد ثبت شد (${engine.status().candidateCount} مورد)`);
 
   // حالا سقف/کف نمادِ دیگری را از خودِ کارگزار می‌پرسد
   const picked = await engine.selectSymbol({ isin: 'IRO1FOLD0001', symbol: 'فولاد', name: 'فولاد مباركه', yesterday: 24800 });
@@ -91,6 +91,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (inst.priceMax !== 10941 || inst.priceMin !== 9899) return fail('سقف/کف اشتباه: ' + JSON.stringify(inst));
   if (inst.maxQuantity !== 200000 || inst.minQuantity !== 10) return fail('تعداد مجاز اشتباه');
   ok('سقف/کف و تعداد مجاز از خودِ کارگزار گرفته شد (بدون تخمین)');
+  if (!engine.status().hasInstrumentEndpoint) return fail('مسیر جواب‌داده باید اثبات‌شده ذخیره شود');
+  ok('مسیر درست به‌عنوان اثبات‌شده ذخیره شد');
 
   // کاربر یک بار دستی سفارش می‌زند
   await engine.browser.send('Runtime.evaluate', {

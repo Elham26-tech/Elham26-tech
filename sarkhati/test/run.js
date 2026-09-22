@@ -492,10 +492,110 @@ test('حجم بیرون از بازهٔ کارگزاری رد می‌شود', ()
   assert.deepStrictEqual(engine.quantityProblems(), []);
 });
 
+// --- یکسان‌سازی فارسی/عربی در جست‌وجو ---
+test('«عیار» فارسی، نمادِ «عيار» عربی را پیدا می‌کند', () => {
+  // دادهٔ TSETMC «ي» عربی دارد و کاربر «ی» فارسی تایپ می‌کند؛ این همان
+  // چیزی بود که جست‌وجو را بی‌دلیل خالی برمی‌گرداند.
+  const rows = [{ symbol: 'عيار', name: 'صندوق عيار', isin: 'IR1' }];
+  assert.strictEqual(tsetmc.search(rows, 'عیار').length, 1);
+  assert.strictEqual(tsetmc.search(rows, 'عيار').length, 1);
+});
+
+test('«ک» و «ي» و نیم‌فاصله و ارقام یکسان می‌شوند', () => {
+  assert.strictEqual(tsetmc.normalizePersian('كيان'), tsetmc.normalizePersian('کیان'));
+  assert.strictEqual(tsetmc.normalizePersian('فولاد\u200cمباركه'), 'فولاد مبارکه');
+  assert.strictEqual(tsetmc.normalizePersian('۱۲۳'), '123');
+  assert.strictEqual(tsetmc.normalizePersian('  آسيا '), 'اسیا');
+});
+
+test('نام شرکت با املای عربی هم پیدا می‌شود', () => {
+  const rows = [{ symbol: 'وبملت', name: 'بانك ملت', isin: 'IR3' }];
+  assert.strictEqual(tsetmc.search(rows, 'بانک').length, 1);
+});
+
+test('نماد کوتاه‌تر اول می‌آید', () => {
+  const rows = [
+    { symbol: 'فولادی', name: '', isin: 'IR9' },
+    { symbol: 'فولاد', name: '', isin: 'IR1' },
+    { symbol: 'فولاژ', name: '', isin: 'IR2' },
+  ];
+  assert.strictEqual(tsetmc.search(rows, 'فولاد')[0].symbol, 'فولاد');
+});
+
+// --- چند نامزد برای مسیر اطلاعات نماد ---
+test('مسیر نمودار امتیاز کمتری از مسیر مشخصات نماد می‌گیرد', () => {
+  // در گزارش واقعی کاربر، مسیر miniChart/history به‌عنوان «اطلاعات نماد»
+  // یاد گرفته شده بود و هرگز سقف/کف نمی‌داد.
+  const chart = { method: 'GET', url: 'https://api.easytrader.ir/chart/api/v2/datafeed/miniChart/history?isin=IRO1FOLD0001' };
+  const info = { method: 'GET', url: 'https://api.easytrader.ir/core/api/v2/instrument?isin=IRO1FOLD0001' };
+  assert.ok(endpoint.scoreEndpoint(info) > endpoint.scoreEndpoint(chart));
+});
+
+test('نامزدهای تکراری دوباره ثبت نمی‌شوند و به‌ترتیب امتیاز می‌مانند', () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ easyTraderUrl: 'https://easytrader.ir/' });
+
+  const chart = {
+    method: 'GET',
+    url: 'https://api.easytrader.ir/chart/api/v2/datafeed/miniChart/history?isin=IRO1FOLD0001&res=1',
+    headers: {},
+  };
+  const info = {
+    method: 'GET',
+    url: 'https://api.easytrader.ir/core/api/v2/instrument?isin=IRO1FOLD0001',
+    headers: {},
+  };
+
+  engine.learnEndpoints(chart);
+  engine.learnEndpoints(info);
+  engine.learnEndpoints({ ...chart, url: chart.url.replace('IRO1FOLD0001', 'IRO3LABN0001') });
+
+  const candidates = engine.learned.candidates;
+  assert.strictEqual(candidates.length, 2, 'همان مسیر با نماد دیگر، نامزد تازه نیست');
+  assert.ok(candidates[0].url.includes('instrument'), 'مسیر مشخصات نماد باید اول باشد');
+  assert.strictEqual(engine.status().candidateCount, 2);
+});
+
+test('نامزدی که سقف/کف بدهد، به‌عنوان مسیر اثبات‌شده ذخیره می‌شود', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.learned = store.saveCandidates([
+    { method: 'GET', url: 'https://api.b.ir/chart/history?isin=IRO1FOLD0001', param: 'isin', sample: 'IRO1FOLD0001', headers: {}, postData: '' },
+    { method: 'GET', url: 'https://api.b.ir/instrument?isin=IRO1FOLD0001', param: 'isin', sample: 'IRO1FOLD0001', headers: {}, postData: '' },
+  ]);
+
+  // نمودار داده‌ای بی‌ربط می‌دهد، مشخصات نماد سقف و کف
+  engine.browser.replayRequest = async (req) => (req.url.includes('instrument')
+    ? { ok: true, status: 200, text: JSON.stringify({ maxAllowedPrice: 10941, minAllowedPrice: 9899, maxOrderQuantity: 200000 }) }
+    : { ok: true, status: 200, text: JSON.stringify({ t: [1, 2, 3], c: [10, 11, 12] }) });
+
+  const found = await engine.brokerLimits('IRO3LABN0001');
+  assert.ok(found, 'باید از نامزد دوم جواب بگیرد');
+  assert.strictEqual(found.upperPrice, 10941);
+  assert.ok(engine.learned.endpoints.instrument.url.includes('instrument'));
+  assert.strictEqual(engine.status().hasInstrumentEndpoint, true);
+});
+
+test('اگر هیچ نامزدی جواب ندهد، سقف/کف تخمینی می‌شود', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.learned = store.saveCandidates([
+    { method: 'GET', url: 'https://api.b.ir/chart/history?isin=IRO1FOLD0001', param: 'isin', sample: 'IRO1FOLD0001', headers: {}, postData: '' },
+  ]);
+  engine.browser.replayRequest = async () => ({ ok: true, status: 200, text: '{"t":[1,2]}' });
+
+  const picked = await engine.selectSymbol({ isin: 'IRO3LABN0001', symbol: 'لبن', name: '', yesterday: 10420 });
+  assert.strictEqual(picked.ok, true);
+  assert.strictEqual(picked.instrument.estimated, true);
+  assert.strictEqual(picked.instrument.priceMax, 10941);
+});
+
 let failed = 0;
+(async () => {
 for (const [name, fn] of tests) {
   try {
-    fn();
+    await fn();
     process.stdout.write(`ok   ${name}\n`);
   } catch (err) {
     failed += 1;
@@ -505,3 +605,4 @@ for (const [name, fn] of tests) {
 fs.rmSync(process.env.SARKHATI_DATA_DIR, { recursive: true, force: true });
 process.stdout.write(`\n${tests.length - failed}/${tests.length} تست موفق\n`);
 process.exit(failed ? 1 : 0);
+})();
