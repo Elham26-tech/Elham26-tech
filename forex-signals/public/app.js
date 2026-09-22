@@ -99,6 +99,13 @@ function renderBadges() {
   feed.className = `badge ${c.dataSource === 'demo' ? 'demo' : 'live'}`;
   feed.textContent = c.dataSource === 'demo' ? 'داده‌ی نمایشی (DEMO)' : 'داده‌ی زنده TradingView';
   $('#ai-badge').textContent = c.ai.enabled ? `هوش مصنوعی: ${c.ai.model}` : 'هوش مصنوعی خاموش — فقط موتور قواعد';
+  const auto =
+    c.auto.mode === 'smart'
+      ? 'تحلیل خودکار: هوشمند (هر کندل ۱ساعته روی زون)'
+      : c.auto.mode === 'interval'
+        ? `تحلیل خودکار: هر ${c.auto.minutes} دقیقه`
+        : 'تحلیل خودکار: خاموش';
+  $('#auto-badge').textContent = [auto, c.webhook ? 'هشدار TradingView' : null, c.telegram ? 'تلگرام' : null].filter(Boolean).join(' · ');
 }
 
 function renderInstruments() {

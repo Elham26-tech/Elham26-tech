@@ -99,7 +99,7 @@ export function createClient(env = process.env) {
   return new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
 }
 
-export function buildRequest({ config, rulebook, tutorialBlocks = [], desc, candidate, previous, dataSource }) {
+export function buildRequest({ config, rulebook, tutorialBlocks = [], desc, candidate, previous, dataSource, note = null }) {
   const system = [
     { type: 'text', text: INSTRUCTIONS },
     { type: 'text', text: `<rulebook>\n${rulebook}\n</rulebook>`, cache_control: { type: 'ephemeral' } },
@@ -149,6 +149,7 @@ export function buildRequest({ config, rulebook, tutorialBlocks = [], desc, cand
       '',
       prev ? `Previous signal for this instrument (context only):\n\`\`\`json\n${JSON.stringify(prev)}\n\`\`\`` : 'No previous signal for this instrument.',
       '',
+      ...(note ? [`This analysis was triggered by: ${note}`, ''] : []),
       'Return the signal.',
     ].join('\n'),
   });

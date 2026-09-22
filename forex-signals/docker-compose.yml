@@ -1,0 +1,32 @@
+# docker compose up -d                  → the app on port 3000, restarted with the server
+# docker compose --profile https up -d  → plus Caddy with automatic HTTPS for DOMAIN
+#                                          (needed for TradingView webhooks: ports 80/443 only)
+services:
+  forex-signals:
+    build: .
+    image: forex-signals
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - fx-data:/app/data
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    profiles: ["https"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - forex-signals
+    restart: unless-stopped
+
+volumes:
+  fx-data:
+  caddy-data:

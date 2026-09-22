@@ -13,6 +13,7 @@ import { analyze, describe, round } from './lib/analysis.js';
 import { config, INSTRUMENTS, instrument, ROLES, TIMEFRAMES, timeframe } from './lib/config.js';
 import { DemoFeed } from './lib/demo-feed.js';
 import { Knowledge, KnowledgeError } from './lib/knowledge.js';
+import { createNotifier } from './lib/notify.js';
 import { ruleSignal } from './lib/rules.js';
 import { finalize } from './lib/signal.js';
 import { SignalStore } from './lib/store.js';
@@ -102,7 +103,28 @@ function makeFeed(cfg) {
   });
 }
 
-export async function createApp({ cfg = config, feed = makeFeed(cfg), client = createClient(), log = console.log } = {}) {
+// TradingView tickers, with or without the exchange prefix, to instruments.
+const TICKER_ALIASES = { GOLD: 'XAUUSD', XAUUSD: 'XAUUSD', EURUSD: 'EURUSD', GBPJPY: 'GBPJPY' };
+
+export function instrumentForTicker(ticker) {
+  const bare = String(ticker || '').toUpperCase().split(':').pop().replace(/[^A-Z]/g, '');
+  const id = TICKER_ALIASES[bare] || (bare.startsWith('XAUUSD') ? 'XAUUSD' : null);
+  return id ? instrument(id) : null;
+}
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+export async function createApp({
+  cfg = config,
+  feed = makeFeed(cfg),
+  client = createClient(),
+  log = console.log,
+  notifier = createNotifier({ token: cfg.telegramToken, chatId: cfg.telegramChatId, mode: cfg.telegramNotify, log }),
+} = {}) {
   const knowledge = await new Knowledge(cfg).load();
   const store = await new SignalStore(cfg).load();
   const { password, generated } = await resolvePassword(cfg);
@@ -157,7 +179,7 @@ export async function createApp({ cfg = config, feed = makeFeed(cfg), client = c
     return ageMin > 60 ? ['داده‌ی قیمت بیش از یک ساعت است به‌روز نشده (بازار بسته است یا اتصال قطع است).'] : [];
   }
 
-  async function runAnalysis(id, trigger) {
+  async function runAnalysis(id, trigger, note = null) {
     const snap = snapshotOf(id);
     const base = { dataSource: feed.source };
     const candidate = finalize(ruleSignal(snap), snap, { ...base, source: 'rules' });
@@ -173,6 +195,7 @@ export async function createApp({ cfg = config, feed = makeFeed(cfg), client = c
           candidate,
           previous: store.latest(id),
           dataSource: feed.source,
+          note,
         });
         const { raw, meta } = await aiSignal(client, request);
         signal = finalize(raw, snap, { ...base, ...meta, source: 'ai' });
@@ -190,17 +213,19 @@ export async function createApp({ cfg = config, feed = makeFeed(cfg), client = c
     signal.trigger = trigger;
     await store.add(signal);
     broadcast('signal', signal);
+    // Someone pressing the button is already looking; automatic runs are pushed.
+    if (notifier && trigger !== 'manual') notifier(signal, instrument(id));
     return signal;
   }
 
   // One run per instrument at a time, and not more often than the minimum
   // interval — each AI run costs money.
-  async function analyzeOnce(id, trigger) {
+  async function analyzeOnce(id, trigger, note = null) {
     if (inFlight.has(id)) return inFlight.get(id);
     const wait = cfg.minAnalyzeSeconds * 1000 - (Date.now() - (lastRun.get(id) || 0));
     if (wait > 0) throw new HttpError(429, 'analysed moments ago; try again shortly', { retryAfter: Math.ceil(wait / 1000) });
     lastRun.set(id, Date.now());
-    const job = runAnalysis(id, trigger).finally(() => inFlight.delete(id));
+    const job = runAnalysis(id, trigger, note).finally(() => inFlight.delete(id));
     inFlight.set(id, job);
     return job;
   }
@@ -232,7 +257,9 @@ export async function createApp({ cfg = config, feed = makeFeed(cfg), client = c
         roles: ROLES,
         dataSource: feed.source,
         ai: { enabled: Boolean(client), model: cfg.model, effort: cfg.effort, fallbacks: cfg.fallbacks },
-        autoAnalyzeMinutes: cfg.autoAnalyzeMinutes,
+        auto: { mode: cfg.autoMode, minutes: cfg.autoAnalyzeMinutes },
+        webhook: Boolean(cfg.webhookSecret),
+        telegram: Boolean(notifier),
         riskPercent: cfg.riskPercent,
       });
     }
@@ -328,12 +355,42 @@ export async function createApp({ cfg = config, feed = makeFeed(cfg), client = c
     throw new HttpError(404, 'not found');
   }
 
+  // An alert from the user's TradingView (e.g. the bundled Pine indicator)
+  // asks for a full analysis of that instrument. Answered at once — TradingView
+  // gives up after a few seconds — while the analysis runs in the background.
+  async function webhook(req, res, url) {
+    if (!cfg.webhookSecret) throw new HttpError(404, 'webhook disabled; set WEBHOOK_SECRET');
+    const text = (await readBody(req, 64 * 1024)).toString('utf8');
+    let body = {};
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = { message: text };
+    }
+    const token = url.searchParams.get('token') || body.token || '';
+    if (!safeEqual(token, cfg.webhookSecret)) throw new HttpError(401, 'bad webhook token');
+    const inst = instrumentForTicker(body.symbol || body.ticker || url.searchParams.get('symbol') || (text.match(/[A-Z]{6}/) || [])[0]);
+    if (!inst) throw new HttpError(400, 'unknown or missing symbol');
+    const note = `TradingView alert${body.action ? ` (${body.action})` : ''}: ${JSON.stringify({ ...body, token: undefined }).slice(0, 500)}`;
+    analyzeOnce(inst.id, 'tradingview', note).catch((err) => log(`webhook analysis ${inst.id}: ${err.message}`));
+    log(`TradingView alert for ${inst.id}`);
+    return sendJson(res, 202, { accepted: true, instrument: inst.id });
+  }
+
   const server = http.createServer(async (req, res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
     res.setHeader('X-Frame-Options', 'DENY');
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/healthz') return sendJson(res, 200, { ok: true, dataSource: feed.source });
+    // TradingView can't send Basic auth, so its webhook carries a secret instead.
+    if (url.pathname === '/api/webhook/tradingview' && req.method === 'POST') {
+      try {
+        return await webhook(req, res, url);
+      } catch (err) {
+        return sendJson(res, err.status || 500, { error: err.message });
+      }
+    }
     if (!authorized(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="forex-signals", charset="UTF-8"', 'Content-Type': 'text/plain' });
       return res.end('authentication required');
@@ -358,22 +415,45 @@ export async function createApp({ cfg = config, feed = makeFeed(cfg), client = c
   }, 1000);
   ticker.unref();
 
-  let auto = null;
-  if (cfg.autoAnalyzeMinutes > 0 && client) {
-    auto = setInterval(async () => {
-      for (const inst of INSTRUMENTS) {
-        const c = feed.getCandles(inst.id, TIMEFRAMES[0].id);
-        // Skip closed markets: no point paying to re-read a frozen chart.
-        if (!c.length || Date.now() / 1000 - c[c.length - 1].time > 3600) continue;
-        try {
-          await analyzeOnce(inst.id, 'auto');
-        } catch (err) {
-          log(`auto analysis ${inst.id}: ${err.message}`);
-        }
-      }
-    }, cfg.autoAnalyzeMinutes * 60_000);
-    auto.unref();
+  // Closed markets are skipped: no point paying to re-read a frozen chart.
+  function marketOpen(inst) {
+    const c = feed.getCandles(inst.id, TIMEFRAMES[0].id);
+    return c.length > 0 && Date.now() / 1000 - c[c.length - 1].time <= 3600;
   }
+
+  async function autoRun(inst, why) {
+    try {
+      await analyzeOnce(inst.id, 'auto', why);
+    } catch (err) {
+      log(`auto analysis ${inst.id}: ${err.message}`);
+    }
+  }
+
+  // Smart mode: once per closed trigger candle, and only when the rule engine
+  // sees price on a zone or a breakout in play — the moments the course
+  // says to look for an entry.
+  const seenTrigger = new Map();
+  async function smartTick() {
+    for (const inst of INSTRUMENTS) {
+      const trig = feed.getCandles(inst.id, ROLES.trigger);
+      if (trig.length < 2 || !marketOpen(inst)) continue;
+      const closedAt = trig[trig.length - 2].time;
+      if (seenTrigger.get(inst.id) === closedAt) continue;
+      seenTrigger.set(inst.id, closedAt);
+      const snap = analyze(inst, feed);
+      if (!snap || ruleSignal(snap).setup === 'none') continue;
+      await autoRun(inst, 'a newly closed trigger candle with price on a zone or a breakout in play');
+    }
+  }
+
+  async function intervalTick() {
+    for (const inst of INSTRUMENTS) if (marketOpen(inst)) await autoRun(inst, 'the scheduled interval');
+  }
+
+  let auto = null;
+  if (cfg.autoMode === 'smart') auto = setInterval(smartTick, 30_000);
+  else if (cfg.autoMode === 'interval' && cfg.autoAnalyzeMinutes > 0) auto = setInterval(intervalTick, cfg.autoAnalyzeMinutes * 60_000);
+  if (auto) auto.unref();
 
   return {
     server,
@@ -381,6 +461,7 @@ export async function createApp({ cfg = config, feed = makeFeed(cfg), client = c
     store,
     knowledge,
     credentials: { user: cfg.appUser, password, generated },
+    smartTick,
     start() {
       feed.start();
       return new Promise((resolve) => server.listen(cfg.port, cfg.host, () => resolve(server.address())));
@@ -401,6 +482,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   const addr = await app.start();
   const where = `http://${addr.address === '0.0.0.0' ? 'localhost' : addr.address}:${addr.port}`;
   console.log(`forex-signals on ${where} — data: ${app.feed.source}, AI: ${createClient() ? config.model : 'off (rules only; set ANTHROPIC_API_KEY)'}`);
+  console.log(
+    `auto analysis: ${config.autoMode}${config.autoMode === 'interval' ? ` every ${config.autoAnalyzeMinutes} min` : ''}; ` +
+      `TradingView webhook: ${config.webhookSecret ? 'on' : 'off (set WEBHOOK_SECRET)'}; ` +
+      `Telegram: ${config.telegramToken && config.telegramChatId && config.telegramNotify !== 'off' ? config.telegramNotify : 'off'}`,
+  );
   if (app.credentials.generated) {
     console.log(`login: ${app.credentials.user} / ${app.credentials.password}  (generated; set APP_PASSWORD to choose your own)`);
   }

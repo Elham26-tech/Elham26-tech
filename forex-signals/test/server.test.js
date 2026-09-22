@@ -58,7 +58,7 @@ async function call(method, url, { body, headers = {}, raw = false } = {}) {
 
 before(async () => {
   dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fx-signals-'));
-  const cfg = { ...config, dataDir, appUser: 'u', appPassword: 'p', port: 0, host: '127.0.0.1', minAnalyzeSeconds: 30, autoAnalyzeMinutes: 0, dataSource: 'demo' };
+  const cfg = { ...config, dataDir, appUser: 'u', appPassword: 'p', port: 0, host: '127.0.0.1', minAnalyzeSeconds: 30, autoMode: 'off', dataSource: 'demo' };
   app = await createApp({ cfg, feed: new DemoFeed({ instruments: INSTRUMENTS, timeframes: TIMEFRAMES }), client: stubClient, log: () => {} });
   const addr = await app.start();
   base = `http://127.0.0.1:${addr.port}`;

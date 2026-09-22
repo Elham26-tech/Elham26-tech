@@ -89,8 +89,20 @@ export const config = {
   // Server-side refusal fallback: a declined request is re-run on Anthropic's
   // recommended model instead of coming back empty. Set AI_FALLBACKS=off to drop it.
   fallbacks: (process.env.AI_FALLBACKS || 'default').toLowerCase() !== 'off',
-  // Minutes between automatic AI runs per instrument; 0 = only when asked.
-  autoAnalyzeMinutes: int('AUTO_ANALYZE_MINUTES', 0),
+  // Automatic analysis while the server runs:
+  //   smart    — at every close of a trigger-timeframe (1H) candle, but only
+  //              when price sits on a zone or a breakout is in play
+  //   interval — every AUTO_ANALYZE_MINUTES, per instrument
+  //   off      — only when asked (button or TradingView webhook)
+  autoMode: (process.env.AUTO_ANALYZE || 'smart').toLowerCase(),
+  autoAnalyzeMinutes: int('AUTO_ANALYZE_MINUTES', 60),
+  // TradingView alerts post to /api/webhook/tradingview?token=<this>; the
+  // endpoint is disabled while it is empty.
+  webhookSecret: process.env.WEBHOOK_SECRET || '',
+  // Signals pushed to a Telegram chat: "actionable" (buy/sell), "all", or "off".
+  telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
+  telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
+  telegramNotify: (process.env.TELEGRAM_NOTIFY || 'actionable').toLowerCase(),
   dataDir: path.resolve(root, process.env.DATA_DIR || 'data'),
   maxUploadBytes: int('MAX_UPLOAD_MB', 20) * 1024 * 1024,
   // Everything in the tutorials library is sent with every AI request (cached),

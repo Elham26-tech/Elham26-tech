@@ -1,0 +1,333 @@
+//@version=6
+// Khakestar price-action signals — companion indicator to the forex-signals
+// web app, for your own TradingView charts (EUR/USD, XAU/USD, GBP/JPY).
+//
+// Use it on the trigger timeframe (1H by default). It finds the course's
+// pivots on the chart (a three-candle / 2.5 ATR leg, then a 0.8 ATR reversal
+// within two candles), draws each pivot's zone from wick to body, grades the
+// zone by the timeframe it earned (pattern 4H / structure D ATR), counts
+// touches and flips, and marks a signal when a closed trigger candle turns
+// away from a pattern-or-higher zone with the stop inside one trigger ATR.
+// Every signal also fires an alert whose JSON message can be sent to the web
+// app's webhook, which then runs the full AI analysis.
+//
+// Educational tool, not financial advice.
+indicator("Khakestar Price Action Signals", shorttitle = "KPA", overlay = true, max_boxes_count = 200, max_lines_count = 300, max_labels_count = 300, max_bars_back = 500)
+
+// ---------------------------------------------------------------- inputs
+grpA = "ATR (course periods)"
+atrLen        = input.int(24, "Trigger ATR period (1H=24, 4H=30, D=22)", minval = 2, group = grpA)
+patternTf     = input.timeframe("240", "Pattern timeframe (movement step)", group = grpA)
+patternAtrLen = input.int(30, "Pattern ATR period", minval = 2, group = grpA)
+structTf      = input.timeframe("D", "Structure timeframe", group = grpA)
+structAtrLen  = input.int(22, "Structure ATR period", minval = 2, group = grpA)
+tolShare      = input.float(0.2, "Tolerance (share of the pattern ATR)", minval = 0.0, step = 0.05, group = grpA)
+
+grpZ = "Zones"
+minGrade      = input.int(2, "Minimum zone grade for signals (1 trigger, 2 pattern, 3 structure)", minval = 1, maxval = 3, group = grpZ)
+showGrade     = input.int(2, "Minimum zone grade to draw", minval = 1, maxval = 3, group = grpZ)
+maxZones      = input.int(40, "Zones kept", minval = 5, maxval = 150, group = grpZ)
+legLookback   = input.int(12, "Leg lookback (bars)", minval = 4, maxval = 60, group = grpZ)
+gradeLookback = input.int(48, "Grading lookback (bars)", minval = 12, maxval = 200, group = grpZ)
+
+grpS = "Signals and alerts"
+showSignals  = input.bool(true, "Show signals", group = grpS)
+cooldown     = input.int(3, "Bars between signals on the same zone", minval = 1, group = grpS)
+showInfo     = input.bool(true, "Show ATR / TH table", group = grpS)
+webhookToken = input.string("", "Webhook secret (WEBHOOK_SECRET on your server)", group = grpS)
+
+colUp   = input.color(#2a78d6, "Support / buy", group = "Colors")
+colDown = input.color(#e34948, "Resistance / sell", group = "Colors")
+colTp   = input.color(#0ca30c, "Target", group = "Colors")
+colSl   = input.color(#d03b3b, "Stop", group = "Colors")
+
+// ---------------------------------------------------------------- ATRs
+// Higher-timeframe values from the last closed bar only, so nothing repaints.
+atrT = ta.atr(atrLen)
+atrP = request.security(syminfo.tickerid, patternTf, ta.atr(patternAtrLen)[1], lookahead = barmerge.lookahead_on)
+atrS = request.security(syminfo.tickerid, structTf, ta.atr(structAtrLen)[1], lookahead = barmerge.lookahead_on)
+atrD = request.security(syminfo.tickerid, "D", ta.atr(22)[1], lookahead = barmerge.lookahead_on)
+dayRange = request.security(syminfo.tickerid, "D", high - low)
+tol = na(atrP) ? atrT * 0.4 : atrP * tolShare
+pip = syminfo.mintick * 10
+
+// ---------------------------------------------------------------- zones
+type Zone
+    float top
+    float bottom
+    bool  res
+    int   legGrade = 1
+    int   grade = 1
+    int   touches = 0
+    int   flips = 0
+    bool  inside = true
+    float depart = 0.0
+    int   born
+    int   confirmed
+    int   lastSignal = -1000
+    box   bx
+
+var array<Zone> zones = array.new<Zone>()
+
+// A pivot at offset k (1 or 2 bars back) confirmed on this bar. Returns
+// [found, zone top, zone bottom, grade its leg earned].
+f_pivot(bool isHigh, int k) =>
+    float px = isHigh ? high[k] : low[k]
+    float a = atrT[k]
+    bool ok = not na(a) and a > 0
+    // The first bar to print this extreme.
+    if ok
+        for j = k + 1 to k + 2
+            float e = isHigh ? high[j] : low[j]
+            if isHigh ? e >= px : e <= px
+                ok := false
+    // Nothing after it went beyond it.
+    if ok
+        for j = 0 to k - 1
+            float e2 = isHigh ? high[j] : low[j]
+            if isHigh ? e2 > px : e2 < px
+                ok := false
+    // A 0.8 ATR reversal completed on this bar, not before.
+    if ok
+        float backNow = 0.0
+        float backBefore = 0.0
+        for j = 0 to k - 1
+            float b = isHigh ? px - low[j] : high[j] - px
+            backNow := math.max(backNow, b)
+            if j > 0
+                backBefore := math.max(backBefore, b)
+        ok := backNow >= 0.8 * a and backBefore < 0.8 * a
+    // The leg into it: three standard candles its way, or 2.5 ATR in total.
+    if ok
+        float start = isHigh ? low[k] : high[k]
+        int startJ = k
+        for j = k + 1 to k + legLookback
+            if isHigh ? high[j] > px : low[j] < px
+                break
+            float opp = isHigh ? low[j] : high[j]
+            if isHigh ? opp < start : opp > start
+                start := opp
+                startJ := j
+        int strong = 0
+        for j = k to startJ
+            bool withLeg = isHigh ? close[j] > open[j] : close[j] < open[j]
+            if withLeg and high[j] - low[j] >= 0.8 * a
+                strong += 1
+        ok := strong >= 3 or math.abs(px - start) >= 2.5 * a
+    float zTop = na
+    float zBot = na
+    int legGrade = 1
+    if ok
+        // Zone: wick tip to body edge, kept between 0.2 and 0.5 ATR.
+        float bodyEdge = isHigh ? math.max(open[k], close[k]) : math.min(open[k], close[k])
+        float depth = math.min(math.max(math.abs(px - bodyEdge), 0.2 * a), 0.5 * a)
+        zTop := isHigh ? px : px + depth
+        zBot := isHigh ? px - depth : px
+        // The timeframe the leg belongs to: 2.5 ATR of the pattern or structure.
+        float far = px
+        for j = k + 1 to k + gradeLookback
+            if isHigh ? high[j] > px : low[j] < px
+                break
+            far := isHigh ? math.min(far, low[j]) : math.max(far, high[j])
+        float bigMove = math.abs(px - far)
+        legGrade := not na(atrS) and bigMove >= 2.5 * atrS ? 3 : not na(atrP) and bigMove >= 2.5 * atrP ? 2 : 1
+    [ok, zTop, zBot, legGrade]
+
+[h1ok, h1t, h1b, h1g] = f_pivot(true, 1)
+[h2ok, h2t, h2b, h2g] = f_pivot(true, 2)
+[l1ok, l1t, l1b, l1g] = f_pivot(false, 1)
+[l2ok, l2t, l2b, l2g] = f_pivot(false, 2)
+
+// Existing zones meet this bar first: a fresh entry is a touch, a close
+// through the far edge flips the role, a second flip retires the zone.
+// Until its first touch, the distance price travels away from a zone decides
+// which timeframe it really belongs to (0.8 ATR of that timeframe).
+if zones.size() > 0
+    for i = zones.size() - 1 to 0
+        Zone z = zones.get(i)
+        if z.res and close > z.top
+            z.res := false
+            z.flips := z.flips + 1
+            z.touches := 0
+            z.inside := true
+        else if not z.res and close < z.bottom
+            z.res := true
+            z.flips := z.flips + 1
+            z.touches := 0
+            z.inside := true
+        else
+            bool enters = high >= z.bottom and low <= z.top
+            if enters and not z.inside
+                z.touches := z.touches + 1
+            z.inside := enters
+        if z.touches == 0 and z.flips == 0
+            z.depart := math.max(z.depart, z.res ? z.bottom - low : high - z.top)
+        int earned = z.depart >= 0.8 * nz(atrS, 1e10) ? 3 : z.depart >= 0.8 * nz(atrP, 1e10) ? 2 : 1
+        z.grade := math.min(z.legGrade, earned)
+        if z.flips >= 2
+            if not na(z.bx)
+                box.delete(z.bx)
+            zones.remove(i)
+        else if z.grade >= showGrade
+            color c = z.res ? colDown : colUp
+            string ztext = (z.res ? "R" : "S") + (z.grade == 3 ? " D" : z.grade == 2 ? " 4H" : " 1H") + (z.touches > 0 ? " ×" + str.tostring(z.touches) : " fresh") + (z.flips == 1 ? " flip" : "")
+            if na(z.bx)
+                z.bx := box.new(left = z.born, top = z.top, right = bar_index, bottom = z.bottom, border_color = color.new(c, 40), bgcolor = color.new(c, z.grade == 3 ? 75 : 85), text = ztext, text_size = size.tiny, text_color = color.new(c, 0), text_halign = text.align_left, text_valign = text.align_top)
+            else
+                box.set_right(z.bx, bar_index)
+                box.set_border_color(z.bx, color.new(c, 40))
+                box.set_bgcolor(z.bx, color.new(c, z.grade == 3 ? 75 : 85))
+                box.set_text(z.bx, ztext)
+                box.set_text_color(z.bx, color.new(c, 0))
+
+f_add(float t, float b, bool isRes, int g, int k) =>
+    Zone z = Zone.new(top = t, bottom = b, res = isRes, legGrade = g, born = bar_index - k, confirmed = bar_index, inside = high >= b and low <= t)
+    zones.push(z)
+    if zones.size() > maxZones
+        Zone old = zones.shift()
+        if not na(old.bx)
+            box.delete(old.bx)
+
+if h1ok
+    f_add(h1t, h1b, true, h1g, 1)
+if h2ok
+    f_add(h2t, h2b, true, h2g, 2)
+if l1ok
+    f_add(l1t, l1b, false, l1g, 1)
+if l2ok
+    f_add(l2t, l2b, false, l2g, 2)
+
+// ---------------------------------------------------------------- triggers
+// The best zone of the wanted role that this bar reached (with tolerance)
+// without closing through it: higher grade first, fewer touches next.
+f_bestZone(bool wantSupport) =>
+    int best = -1
+    float bestScore = -1e10
+    if zones.size() > 0
+        for i = 0 to zones.size() - 1
+            Zone z = zones.get(i)
+            bool roleOk = wantSupport ? not z.res : z.res
+            bool reached = wantSupport ? low <= z.top + tol and close >= z.bottom - tol : high >= z.bottom - tol and close <= z.top + tol
+            if roleOk and reached and z.grade >= minGrade and z.touches < 3 and z.confirmed < bar_index and bar_index - z.lastSignal > cooldown
+                float sc = z.grade * 10.0 - z.touches + (z.flips == 1 ? 0.5 : 0.0)
+                if sc > bestScore
+                    bestScore := sc
+                    best := i
+    best
+
+// The nearest edge of the first pattern-or-higher zone in the way of a target.
+f_cap(bool forBuy, float fromPrice) =>
+    float cap = na
+    if zones.size() > 0
+        for i = 0 to zones.size() - 1
+            Zone z = zones.get(i)
+            if z.grade >= 2
+                if forBuy and z.res and z.bottom > fromPrice
+                    float cUp = z.bottom - tol
+                    cap := na(cap) ? cUp : math.min(cap, cUp)
+                else if not forBuy and not z.res and z.top < fromPrice
+                    float cDn = z.top + tol
+                    cap := na(cap) ? cDn : math.max(cap, cDn)
+    cap
+
+// The open of the last candle against the trigger: a trigger closes through it.
+f_lastOpposite(bool wantBear) =>
+    float o = na
+    for j = 1 to 8
+        if wantBear ? close[j] < open[j] : close[j] > open[j]
+            o := open[j]
+            break
+    o
+
+lastBearOpen = f_lastOpposite(true)
+lastBullOpen = f_lastOpposite(false)
+rng = high - low
+sized = rng >= 0.8 * atrT or (rng > 0 and math.abs(close - open) / rng >= 0.8)
+bullTrig = close > open and sized and ((not na(lastBearOpen) and close > lastBearOpen) or close > high[1])
+bearTrig = close < open and sized and ((not na(lastBullOpen) and close < lastBullOpen) or close < low[1])
+
+buyZone = f_bestZone(true)
+sellZone = f_bestZone(false)
+capUp = f_cap(true, close)
+capDn = f_cap(false, close)
+ready = showSignals and barstate.isconfirmed and not na(atrT) and not na(atrP) and not na(atrS)
+
+bool buySig = false
+bool sellSig = false
+float sigSl = na
+float sigTp1 = na
+float sigTp2 = na
+
+// Stop behind the zone plus tolerance, never wider than one trigger ATR.
+// TP1 = pattern ATR less a trigger ATR; TP2 = structure ATR less a pattern
+// ATR (at least three trigger ATRs); both pulled in before a strong zone,
+// and no trade without at least 1R of room to TP1.
+if ready and bullTrig and buyZone >= 0
+    Zone z = zones.get(buyZone)
+    float stop = z.bottom - tol
+    float risk = close - stop
+    if risk > 0 and risk <= atrT
+        float t1 = close + math.max(atrP - atrT, atrT)
+        float t2 = close + math.max(atrS - atrP, 3 * atrT)
+        if not na(capUp)
+            t1 := math.min(t1, capUp)
+            t2 := math.min(t2, capUp)
+        if t1 - close >= risk
+            buySig := true
+            sigSl := stop
+            sigTp1 := t1
+            sigTp2 := t2
+            z.lastSignal := bar_index
+
+if ready and bearTrig and sellZone >= 0 and not buySig
+    Zone z = zones.get(sellZone)
+    float stop = z.top + tol
+    float risk = stop - close
+    if risk > 0 and risk <= atrT
+        float t1 = close - math.max(atrP - atrT, atrT)
+        float t2 = close - math.max(atrS - atrP, 3 * atrT)
+        if not na(capDn)
+            t1 := math.max(t1, capDn)
+            t2 := math.max(t2, capDn)
+        if close - t1 >= risk
+            sellSig := true
+            sigSl := stop
+            sigTp1 := t1
+            sigTp2 := t2
+            z.lastSignal := bar_index
+
+if buySig or sellSig
+    color c = buySig ? colUp : colDown
+    string txt = (buySig ? "BUY " : "SELL ") + str.tostring(close, format.mintick) + "\nSL " + str.tostring(sigSl, format.mintick) + " (" + str.tostring(math.abs(close - sigSl) / pip, "#.#") + " pip)" + "\nTP1 " + str.tostring(sigTp1, format.mintick) + (sigTp2 != sigTp1 ? "\nTP2 " + str.tostring(sigTp2, format.mintick) : "")
+    label.new(bar_index, buySig ? low : high, txt, style = buySig ? label.style_label_up : label.style_label_down, color = c, textcolor = color.white, size = size.small)
+    line.new(bar_index, sigSl, bar_index + 12, sigSl, color = colSl, style = line.style_dashed, width = 1)
+    line.new(bar_index, sigTp1, bar_index + 12, sigTp1, color = colTp, style = line.style_dashed, width = 1)
+    if sigTp2 != sigTp1
+        line.new(bar_index, sigTp2, bar_index + 12, sigTp2, color = colTp, style = line.style_dotted, width = 1)
+    // JSON for the web app's webhook (/api/webhook/tradingview).
+    string msg = '{"token":"' + webhookToken + '","symbol":"' + syminfo.ticker + '","action":"' + (buySig ? "BUY" : "SELL") + '","price":' + str.tostring(close) + ',"stop":' + str.tostring(sigSl) + ',"tp1":' + str.tostring(sigTp1) + ',"tp2":' + str.tostring(sigTp2) + ',"timeframe":"' + timeframe.period + '"}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+alertcondition(buySig, "KPA buy", "KPA BUY {{ticker}} {{close}}")
+alertcondition(sellSig, "KPA sell", "KPA SELL {{ticker}} {{close}}")
+
+// ---------------------------------------------------------------- info table
+var table info = table.new(position.top_right, 2, 6, bgcolor = color.new(color.gray, 88), border_width = 1)
+if showInfo and barstate.islast
+    int strongZones = 0
+    if zones.size() > 0
+        for i = 0 to zones.size() - 1
+            if zones.get(i).grade >= 2
+                strongZones += 1
+    table.cell(info, 0, 0, "ATR trigger (" + timeframe.period + ")", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 1, 0, str.tostring(atrT / pip, "#.#") + " pip", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 0, 1, "ATR pattern (" + patternTf + ")", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 1, 1, str.tostring(atrP / pip, "#.#") + " pip", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 0, 2, "ATR structure (" + structTf + ")", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 1, 2, str.tostring(atrS / pip, "#.#") + " pip", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 0, 3, "TH daily (0.66%)", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 1, 3, str.tostring(close * 0.0066 / pip, "#.#") + " pip", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 0, 4, "Day ATR used", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 1, 4, str.tostring(100 * dayRange / atrD, "#") + "%", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 0, 5, "Zones 4H+", text_size = size.small, text_color = chart.fg_color)
+    table.cell(info, 1, 5, str.tostring(strongZones), text_size = size.small, text_color = chart.fg_color)

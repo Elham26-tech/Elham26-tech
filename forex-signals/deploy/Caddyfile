@@ -1,0 +1,4 @@
+# HTTPS in front of the app; Caddy fetches the certificate for DOMAIN itself.
+{$DOMAIN} {
+	reverse_proxy forex-signals:3000
+}
