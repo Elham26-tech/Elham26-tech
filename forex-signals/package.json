@@ -1,0 +1,21 @@
+{
+  "name": "forex-signals",
+  "version": "0.1.0",
+  "description": "AI trading signals for EUR/USD, Gold and GBP/JPY from TradingView data, guided by your own tutorials",
+  "type": "module",
+  "main": "server.js",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "demo": "DATA_SOURCE=demo node server.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "ws": "^8.21.3",
+    "yauzl": "^3.4.0"
+  }
+}
