@@ -40,14 +40,35 @@ export const INSTRUMENTS = [
   },
 ];
 
-// TradingView resolution codes. Order matters: highest timeframe last, the
-// analysis reads top-down from `D` to `15`.
+// TradingView resolution codes, lowest timeframe first.
+//
+// `atrPeriod` follows the course: each timeframe's ATR spans the next natural
+// cycle — 1H x24 (a day), 4H x30 (a week), D x22 (a trading month), W x52 (a
+// year); lower timeframes reuse the same ~24. `thShare` is the timeframe's
+// share of the daily movement power (TH = 0.66% of price): 4H 40%, 1H 20%,
+// 15m 10%.
 export const TIMEFRAMES = [
-  { id: '15', label: '15m', bars: 300 },
-  { id: '60', label: '1H', bars: 300 },
-  { id: '240', label: '4H', bars: 300 },
-  { id: '1D', label: '1D', bars: 300 },
+  { id: '15', label: '15m', bars: 300, atrPeriod: 24, thShare: 0.1 },
+  { id: '60', label: '1H', bars: 300, atrPeriod: 24, thShare: 0.2 },
+  { id: '240', label: '4H', bars: 300, atrPeriod: 30, thShare: 0.4 },
+  { id: '1D', label: '1D', bars: 300, atrPeriod: 22, thShare: 1 },
+  { id: 'W', label: '1W', bars: 200, atrPeriod: 52, thShare: null },
 ];
+
+// Fractal roles from the course's own setup: structure D, pattern one lower
+// (its ATR is the movement step), trigger two lower. The 15m ATR is the
+// tolerance (20% of the pattern step) and the weekly is the higher context.
+export const ROLES = {
+  context: 'W',
+  structure: '1D',
+  pattern: '240',
+  trigger: '60',
+  tolerance: '15',
+};
+
+export function timeframe(id) {
+  return TIMEFRAMES.find((t) => t.id === id) || null;
+}
 
 export const config = {
   root,
@@ -72,6 +93,13 @@ export const config = {
   autoAnalyzeMinutes: int('AUTO_ANALYZE_MINUTES', 0),
   dataDir: path.resolve(root, process.env.DATA_DIR || 'data'),
   maxUploadBytes: int('MAX_UPLOAD_MB', 20) * 1024 * 1024,
+  // Everything in the tutorials library is sent with every AI request (cached),
+  // so the library has a budget: raw bytes of PDFs/images and characters of text.
+  maxTutorialBytes: int('MAX_TUTORIAL_MB', 20) * 1024 * 1024,
+  maxTutorialChars: int('MAX_TUTORIAL_CHARS', 300_000),
+  // Fewest seconds between two AI runs on the same instrument.
+  minAnalyzeSeconds: int('MIN_ANALYZE_SECONDS', 30),
+  riskPercent: Number(process.env.RISK_PERCENT || 1),
 };
 
 export function instrument(id) {

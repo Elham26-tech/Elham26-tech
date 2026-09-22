@@ -6,7 +6,14 @@ import { EventEmitter } from 'node:events';
 const START = { EURUSD: 1.085, XAUUSD: 2650, GBPJPY: 192.5 };
 const VOL = { EURUSD: 0.0006, XAUUSD: 2.2, GBPJPY: 0.12 }; // per-15m-bar noise
 
-const TF_SECONDS = { 15: 900, 60: 3600, 240: 14400, '1D': 86400 };
+const TF_SECONDS = { 15: 900, 60: 3600, 240: 14400, '1D': 86400, W: 604800 };
+const MONDAY = 4 * 86400; // the Unix epoch was a Thursday; weekly bars open on Monday
+
+function bucket(time, tf) {
+  const step = TF_SECONDS[tf];
+  const shift = tf === 'W' ? MONDAY : 0;
+  return Math.floor((time - shift) / step) * step + shift;
+}
 
 // Deterministic PRNG so the demo history is identical across restarts.
 function mulberry32(seed) {
@@ -48,10 +55,10 @@ function buildBase(id, bars15, now) {
   return candles;
 }
 
-function aggregate(base, step, bars) {
+function aggregate(base, tf, bars) {
   const out = [];
   for (const c of base) {
-    const t = Math.floor(c.time / step) * step;
+    const t = bucket(c.time, tf);
     const bar = out[out.length - 1];
     if (!bar || bar.time !== t) {
       out.push({ ...c, time: t });
@@ -78,7 +85,7 @@ export class DemoFeed extends EventEmitter {
       const base = buildBase(inst.id, Math.ceil(span / 900), now);
       for (const tf of timeframes) {
         this.series.set(`${inst.id}:${tf.id}`, {
-          candles: aggregate(base, TF_SECONDS[tf.id], tf.bars),
+          candles: aggregate(base, tf.id, tf.bars),
           updatedAt: Date.now(),
         });
       }
@@ -104,8 +111,7 @@ export class DemoFeed extends EventEmitter {
         const key = `${inst.id}:${tf.id}`;
         const entry = this.series.get(key);
         const candles = entry.candles;
-        const step = TF_SECONDS[tf.id];
-        const openTime = Math.floor(now / step) * step;
+        const openTime = bucket(now, tf.id);
         let bar = candles[candles.length - 1];
         if (bar.time < openTime) {
           bar = { time: openTime, open: bar.close, high: bar.close, low: bar.close, close: bar.close, volume: 0 };

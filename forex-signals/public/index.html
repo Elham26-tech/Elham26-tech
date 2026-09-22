@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>سیگنال پرایس‌اکشن</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect x='2' y='5' width='3' height='7' fill='%232a78d6'/%3E%3Crect x='7' y='2' width='3' height='9' fill='%23e34948'/%3E%3Crect x='12' y='6' width='2' height='6' fill='%232a78d6'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>سیگنال پرایس‌اکشن</h1>
+      <p class="sub">EUR/USD · طلا · GBP/JPY — بر پایه‌ی دوره‌ی سعید خاکستر</p>
+    </div>
+    <div class="badges">
+      <span id="feed-badge" class="badge">…</span>
+      <span id="ai-badge" class="badge">…</span>
+      <button id="theme-toggle" class="icon-btn" type="button" aria-label="تغییر پوسته">◐</button>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-view="dashboard" aria-selected="true">داشبورد</button>
+      <button role="tab" data-view="knowledge" aria-selected="false">آموزش‌ها و قواعد</button>
+      <button role="tab" data-view="history" aria-selected="false">تاریخچه‌ی سیگنال‌ها</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-dashboard" class="view">
+      <div id="instruments" class="instruments" role="radiogroup" aria-label="نماد"></div>
+
+      <div class="grid">
+        <article class="card signal-card" aria-live="polite">
+          <div class="card-head">
+            <h2>سیگنال</h2>
+            <button id="analyze-btn" class="primary" type="button">تحلیل تازه</button>
+          </div>
+          <div id="signal"></div>
+          <p id="live-read" class="live-read"></p>
+        </article>
+
+        <article class="card chart-card">
+          <div class="card-head">
+            <div class="seg" role="tablist" aria-label="نوع نمودار">
+              <button data-chart="levels" aria-selected="true">نمودار سطوح دوره</button>
+              <button data-chart="tv" aria-selected="false">TradingView</button>
+            </div>
+            <div id="tf-buttons" class="seg" aria-label="تایم‌فریم"></div>
+          </div>
+          <div id="chart-levels" class="chart-wrap">
+            <canvas id="chart" role="img" aria-label="نمودار شمعی با زون‌های حمایت و مقاومت"></canvas>
+            <div id="tooltip" class="tooltip" hidden></div>
+          </div>
+          <div id="chart-tv" class="chart-wrap" hidden>
+            <div id="tv-container" class="tv-container"></div>
+          </div>
+          <ul class="legend" aria-label="راهنما">
+            <li><span class="key key-up"></span>کندل صعودی (توخالی)</li>
+            <li><span class="key key-down"></span>کندل نزولی (توپر)</li>
+            <li><span class="key key-zone-s"></span>زون حمایت (S)</li>
+            <li><span class="key key-zone-r"></span>زون مقاومت (R)</li>
+            <li><span class="key key-line key-tp"></span>تارگت</li>
+            <li><span class="key key-line key-sl"></span>حد ضرر</li>
+          </ul>
+        </article>
+      </div>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>خوانش بازار به روش دوره</h2>
+          <span id="read-time" class="muted"></span>
+        </div>
+        <div id="read-summary" class="read-summary"></div>
+        <div class="tables">
+          <div class="table-wrap">
+            <h3>گام حرکتی در هر تایم‌فریم</h3>
+            <table id="tf-table"></table>
+          </div>
+          <div class="table-wrap">
+            <h3>زون‌های نزدیک</h3>
+            <table id="levels-table"></table>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section id="view-knowledge" class="view" hidden>
+      <article class="card">
+        <div class="card-head">
+          <h2>آموزش‌های شما</h2>
+          <span id="budget" class="muted"></span>
+        </div>
+        <p class="hint">فایل‌های PDF، تصویر (PNG/JPG/WebP/GIF) یا متن (TXT/MD) را اضافه کنید. آموزش‌های فعال همراه هر درخواست به هوش مصنوعی فرستاده می‌شوند و اگر با قواعد زیر فرق داشته باشند، مقدم‌اند. متن‌های خیلی بلند هزینه‌ی هر تحلیل را بالا می‌برند؛ بهتر است خلاصه‌ی قواعد را اضافه کنید.</p>
+        <label id="dropzone" class="dropzone">
+          <input id="file-input" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md">
+          <span>فایل‌ها را اینجا رها کنید یا برای انتخاب کلیک کنید</span>
+        </label>
+        <p id="upload-status" class="muted" aria-live="polite"></p>
+        <table id="tutorials-table"></table>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>قواعد معاملاتی (Rulebook)</h2>
+          <span id="rulebook-state" class="muted"></span>
+        </div>
+        <p class="hint">این متن، خلاصه‌ی دوره است که هوش مصنوعی بر اساس آن تصمیم می‌گیرد. می‌توانید آن را ویرایش کنید؛ خالی‌کردن و ذخیره، متن پیش‌فرض را برمی‌گرداند.</p>
+        <textarea id="rulebook" spellcheck="false" rows="18"></textarea>
+        <div class="actions">
+          <button id="save-rulebook" class="primary" type="button">ذخیره</button>
+          <button id="reset-rulebook" type="button">بازگشت به متن پیش‌فرض</button>
+          <span id="rulebook-status" class="muted" aria-live="polite"></span>
+        </div>
+      </article>
+    </section>
+
+    <section id="view-history" class="view" hidden>
+      <article class="card">
+        <div class="card-head">
+          <h2>تاریخچه‌ی سیگنال‌ها</h2>
+          <select id="history-filter" aria-label="فیلتر نماد"></select>
+        </div>
+        <div class="table-scroll"><table id="history-table"></table></div>
+      </article>
+    </section>
+  </main>
+
+  <footer class="disclaimer">
+    این برنامه ابزار کمک‌تحلیل است و توصیه‌ی مالی نیست. هر سیگنال را خودتان بررسی کنید، همیشه حد ضرر بگذارید و بیش از ۱٪ سرمایه را در یک معامله ریسک نکنید. داده‌ی TradingView از مسیر غیررسمی خوانده می‌شود و ممکن است تأخیر یا قطعی داشته باشد.
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
