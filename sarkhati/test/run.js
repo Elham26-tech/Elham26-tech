@@ -781,6 +781,78 @@ test('قیمتی که مضرب گام قیمت نیست رد می‌شود', () 
   assert.strictEqual(recipe.validate(learned, { quantity: 10, price: 10005, tick: 1 }).ok, true);
 });
 
+// --- سقف/کف از پاسخ زندهٔ مرورگر ---
+test('سقف/کف از پاسخی که ایزی‌تریدر گرفته برداشته می‌شود', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ easyTraderUrl: 'https://easytrader.ir/' });
+
+  const request = { method: 'GET', url: 'https://api.easytrader.ir/ms/api/MarketSheet/sum/IRO1FOLD0001/' };
+  engine.browser.send = async (method) => {
+    assert.strictEqual(method, 'Network.getResponseBody');
+    return { base64Encoded: false, body: JSON.stringify({
+      maxAllowedPrice: 26250, minAllowedPrice: 23750, maxOrderQuantity: 200000,
+    }) };
+  };
+
+  engine.onBrowserEvent({
+    method: 'Network.requestWillBeSent',
+    params: { requestId: 'q1', request },
+  });
+  await engine.captureLimits('q1', request, { status: 200, mimeType: 'application/json' }, 'S1');
+
+  const picked = await engine.selectSymbol({ isin: 'IRO1FOLD0001', symbol: 'فولاد', name: '', yesterday: 25000 });
+  assert.strictEqual(picked.instrument.estimated, false, 'نباید تخمینی باشد');
+  assert.strictEqual(picked.instrument.priceMax, 26250);
+  assert.strictEqual(picked.instrument.maxQuantity, 200000);
+});
+
+test('پاسخِ بدون سقف/کف نگه داشته نمی‌شود', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  const request = { method: 'GET', url: 'https://api.easytrader.ir/chart/IRO1FOLD0001/history' };
+  engine.browser.send = async () => ({ base64Encoded: false, body: JSON.stringify({ t: [1, 2], c: [3, 4] }) });
+
+  await engine.captureLimits('q2', request, { status: 200, mimeType: 'application/json' }, 'S1');
+  assert.strictEqual(engine.capturedLimits.size, 0);
+});
+
+test('پاسخ HTML اصلاً خوانده نمی‌شود', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  let called = false;
+  engine.browser.send = async () => { called = true; return { body: '<html>' }; };
+
+  await engine.captureLimits('q3', { url: 'https://api.easytrader.ir/x/IRO1FOLD0001' },
+    { status: 200, mimeType: 'text/html' }, 'S1');
+  assert.strictEqual(called, false, 'برای HTML نباید بدنه خوانده شود');
+});
+
+test('کد نماد از نشانی یا بدنه پیدا می‌شود', () => {
+  const engine = new Engine();
+  assert.strictEqual(engine.isinOf({ url: 'https://x.ir/a/IRO1FOLD0001/b' }), 'IRO1FOLD0001');
+  assert.strictEqual(engine.isinOf({ url: 'https://x.ir/a', postData: '{"isin":"IRO3LABN0001"}' }), 'IRO3LABN0001');
+  assert.strictEqual(engine.isinOf({ url: 'https://x.ir/a' }), null);
+});
+
+// --- توقف وقتی سرور کارگزاری بالا نیست ---
+test('بعد از خطاهای پیاپیِ سمت سرور، شلیک می‌ایستد', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ easyTraderUrl: 'https://easy.broker.ir', quantity: 10, price: 100, priceMode: 'manual' });
+  engine.learned = store.saveRecipe(recipe.fromRequest(SAMPLE_REQUEST, { status: 200 }));
+  engine.browser.replayRequest = async () => ({ ok: false, status: 504, text: 'gateway timeout' });
+
+  engine.session.firing = true;
+  engine.serverErrors = 0;
+  for (let i = 0; i < 15 && engine.session.firing; i += 1) await engine.attempt();
+
+  assert.strictEqual(engine.session.firing, false, 'باید متوقف شده باشد');
+  assert.ok(engine.session.attempts < 15, 'نباید تا آخر ادامه بدهد');
+  const log = engine.session.log.map((l) => l.message).join('\n');
+  assert.ok(log.includes('شلیک متوقف شد'));
+});
+
 let failed = 0;
 (async () => {
 for (const [name, fn] of tests) {

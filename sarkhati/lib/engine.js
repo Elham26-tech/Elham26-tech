@@ -19,6 +19,8 @@ class Engine {
     this.learned = store.loadLearned();
     this.browser = new Browser();
     this.pendingRequests = new Map();
+    this.capturedLimits = new Map(Object.entries(this.learnedLimits()));
+    this.finishedPending = new Map();
     this.armTimer = null;
     this.fireTimer = null;
     this.stopTimer = null;
@@ -28,6 +30,10 @@ class Engine {
     this.dropInvalidRecipe();
     this.browser.on('event', (msg) => this.onBrowserEvent(msg));
     this.browser.on('disconnected', () => this.log('ارتباط با مرورگر قطع شد.', 'warn'));
+  }
+
+  learnedLimits() {
+    return (this.learned && this.learned.limitsByIsin) || {};
   }
 
   /**
@@ -206,12 +212,20 @@ class Engine {
       const { requestId, request } = msg.params;
       if (!request) return;
       this.learnEndpoints(request);
-      if (request.method === 'POST' || request.method === 'PUT') {
-        this.pendingRequests.set(requestId, request);
-        if (this.pendingRequests.size > 60) {
-          this.pendingRequests.delete(this.pendingRequests.keys().next().value);
-        }
+      this.pendingRequests.set(requestId, request);
+      if (this.pendingRequests.size > 200) {
+        this.pendingRequests.delete(this.pendingRequests.keys().next().value);
       }
+      return;
+    }
+
+    // بدنهٔ پاسخ تازه اینجا قابل خواندن است، نه در responseReceived
+    if (msg.method === 'Network.loadingFinished') {
+      const pending = this.finishedPending.get(msg.params.requestId);
+      if (!pending) return;
+      this.finishedPending.delete(msg.params.requestId);
+      this.captureLimits(msg.params.requestId, pending.request, pending.response, pending.sessionId)
+        .catch(() => { /* بدنه در دسترس نبود */ });
       return;
     }
 
@@ -219,8 +233,18 @@ class Engine {
       const { requestId, response } = msg.params;
       const request = this.pendingRequests.get(requestId);
       this.pendingRequests.delete(requestId);
-      if (!request || !this.session.learning) return;
+      if (!request) return;
       if (response.status < 200 || response.status >= 300) return;
+
+      // بدنهٔ پاسخ هنوز آماده نیست؛ تا loadingFinished نگهش می‌داریم.
+      if (this.isinOf(request)) {
+        this.finishedPending.set(requestId, { request, response, sessionId: msg.sessionId });
+        if (this.finishedPending.size > 80) {
+          this.finishedPending.delete(this.finishedPending.keys().next().value);
+        }
+      }
+
+      if (!this.session.learning) return;
       if (!recipeLib.looksLikeOrder(request, { origin: this.settings.easyTraderUrl })) {
         this.noteSkipped(request);
         return;
@@ -312,7 +336,8 @@ class Engine {
     try {
       payload = JSON.parse(result.text);
     } catch {
-      return { ok: false, where, why: 'پاسخ JSON نبود' };
+      const snippet = String(result.text || '').trim().slice(0, 80).replace(/\s+/g, ' ');
+      return { ok: false, where, why: `پاسخ JSON نبود — «${snippet}»` };
     }
 
     const found = limitsLib.fromResponse(payload);
@@ -379,6 +404,56 @@ class Engine {
     if (failures.length) this.lastCandidateFailures = failures;
     this.lastBrokerLimits = { source: merged.source, limits: merged };
     return merged;
+  }
+
+  /**
+   * از پاسخِ زندهٔ ایزی‌تریدر، سقف/کف و حجم مجاز را برمی‌دارد.
+   *
+   * وقتی شما نمادی را در ایزی‌تریدر باز می‌کنید، خودِ صفحه همین اعداد را
+   * می‌گیرد. خواندن از همان پاسخ مطمئن‌تر از تکرار درخواست است: نه به
+   * توکن دست می‌زنیم، نه به CORS می‌خوریم، و نه پاسخ HTML می‌گیریم.
+   */
+  async captureLimits(requestId, request, response, sessionId) {
+    if (!sessionId) return;
+    const isin = this.isinOf(request);
+    if (!isin) return;
+
+    const mime = String(response.mimeType || '');
+    if (mime && !/json|javascript|text\/plain/i.test(mime)) return;
+
+    let payload;
+    try {
+      const body = await this.browser.send('Network.getResponseBody', { requestId }, sessionId);
+      payload = JSON.parse(body.base64Encoded
+        ? Buffer.from(body.body, 'base64').toString('utf8')
+        : body.body);
+    } catch {
+      return; // بدنه دیگر در دسترس نبود یا JSON نبود
+    }
+
+    const found = limitsLib.fromResponse(payload);
+    if (!limitsLib.isUseful(found)) return;
+
+    const before = this.capturedLimits.get(isin);
+    const merged = limitsLib.merge(before || limitsLib.emptyLimits(), found);
+    let where = request.url;
+    try { where = new URL(request.url).pathname; } catch { /* نشانی غیرعادی */ }
+    merged.source = where;
+    this.capturedLimits.set(isin, merged);
+    this.learned = store.saveCapturedLimits(isin, merged);
+
+    if (!before) {
+      this.log(`سقف/کف ${isin} از خودِ ایزی‌تریدر گرفته شد: ${where}`, 'ok');
+      this.persist();
+    }
+  }
+
+  /** کد نمادی که در این درخواست آمده */
+  isinOf(request) {
+    const inUrl = String(request.url || '').match(/IR[A-Z0-9]{10}/);
+    if (inUrl) return inUrl[0];
+    const inBody = String(request.postData || '').match(/IR[A-Z0-9]{10}/);
+    return inBody ? inBody[0] : null;
   }
 
   /** چند تا از درخواست‌هایی که سفارش نبودند را گزارش می‌کند، بدون شلوغ‌کاری */
@@ -457,7 +532,10 @@ class Engine {
       return { ok: false, error: 'نماد بدون کد' };
     }
 
-    let limits = await this.brokerLimits(isin);
+    // اول آنچه از ترافیک زندهٔ ایزی‌تریدر گرفته‌ایم
+    let limits = this.capturedLimits.get(isin) || null;
+    if (limits) this.log(`سقف/کف ${row.symbol} از پاسخ زندهٔ کارگزاری خوانده شد.`, 'ok');
+    if (!limits) limits = await this.brokerLimits(isin);
     let estimated = false;
 
     if (!limits) {
@@ -467,7 +545,7 @@ class Engine {
         this.log(
           this.learned.endpoints && this.learned.endpoints.instrument
             ? 'کارگزاری سقف/کف نداد؛ فعلاً تخمین از قیمت دیروز استفاده می‌شود.'
-            : 'هنوز درخواستی از کارگزاری دیده نشده؛ در ایزی‌تریدر همین نماد را باز کنید تا سقف/کف واقعی بیاید.',
+            : 'در ایزی‌تریدر همین نماد را باز کنید (صفحهٔ خرید و فروشش) تا سقف/کف واقعی خوانده شود.',
           'warn',
         );
       }
@@ -583,13 +661,31 @@ class Engine {
 
     // ۵xx یعنی ایراد سمت کارگزاری است، نه سفارش ما — معمولاً بیرون از
     // ساعت معاملات. بدون این توضیح، کاربر دنبال اشکالِ نداشته می‌گردد.
-    const serverSide = result.status >= 500;
-    this.log(
-      `تلاش ${attemptNo}: رد — HTTP ${result.status}`
-        + (serverSide ? ' (سرور کارگزاری پاسخ نداد؛ احتمالاً بیرون از ساعت معاملات)' : '')
-        + ` | ${String(result.text).slice(0, 140)}`,
-      'error',
-    );
+    const serverSide = result.status >= 500 || result.status === 0;
+    this.serverErrors = serverSide ? (this.serverErrors || 0) + 1 : 0;
+
+    // کوبیدن صدها بار به سروری که بالا نیست فایده‌ای ندارد و فقط گزارش را
+    // پر می‌کند؛ بعد از چند خطای پیاپیِ سمت سرور می‌ایستیم.
+    const GIVE_UP_AFTER = 12;
+    if (this.serverErrors >= GIVE_UP_AFTER) {
+      this.log(
+        `${this.serverErrors} پاسخ پیاپیِ HTTP ${result.status} از کارگزاری — شلیک متوقف شد.`
+          + ' سرور کارگزاری در دسترس نیست (معمولاً بیرون از ساعت معاملات).',
+        'error',
+      );
+      this.stopFiring('کارگزاری در دسترس نیست');
+      return;
+    }
+
+    // فقط چند خطای اول نوشته می‌شود، نه هر تلاش
+    if (!serverSide || this.serverErrors <= 3) {
+      this.log(
+        `تلاش ${attemptNo}: رد — HTTP ${result.status}`
+          + (serverSide ? ' (سرور کارگزاری پاسخ نداد؛ احتمالاً بیرون از ساعت معاملات)' : '')
+          + ` | ${String(result.text).slice(0, 140)}`,
+        'error',
+      );
+    }
   }
 
   arm() {
@@ -632,6 +728,7 @@ class Engine {
   startFiring() {
     if (this.session.firing || this.session.finished) return;
     this.session.firing = true;
+    this.serverErrors = 0;
     const gap = Math.max(5, Number(this.settings.retryGapMs) || 10);
     const parallel = Math.max(1, Number(this.settings.parallel) || 1);
     this.log(
@@ -752,7 +849,11 @@ class Engine {
   resetMemory({ session = true, learned = false } = {}) {
     this.disarm(false);
     if (session) this.session = store.resetSession();
-    if (learned) this.learned = store.resetLearned();
+    if (learned) {
+      this.learned = store.resetLearned();
+      // سقف/کفِ گرفته‌شده هم بخشی از همان چیزی است که یاد گرفته‌ایم
+      this.capturedLimits.clear();
+    }
     this.log(
       `حافظه پاک شد (${[session && 'جلسه', learned && 'سفارش یادگرفته‌شده'].filter(Boolean).join(' و ')}).`,
       'ok',
@@ -774,6 +875,7 @@ class Engine {
       browserConnected: this.browser.connected,
       hasInstrumentEndpoint: Boolean(this.learned.endpoints && this.learned.endpoints.instrument),
       candidateCount: (this.learned.candidates || []).length,
+      capturedLimitCount: this.capturedLimits.size,
       hasBrokerClock: Boolean(this.learned.endpoints && this.learned.endpoints.serverTime),
       symbolCount: (this.symbols || []).length,
       settings: this.settings,

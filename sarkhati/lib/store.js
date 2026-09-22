@@ -72,7 +72,7 @@ const DEFAULT_SETTINGS = {
 
 // endpoints: درخواست‌های «جست‌وجو» و «اطلاعات نماد» که از خود ایزی‌تریدر
 // یاد گرفته می‌شوند تا بشود دربارهٔ نماد دیگری هم از کارگزار پرسید.
-const DEFAULT_LEARNED = { recipe: null, history: [], endpoints: {}, candidates: [] };
+const DEFAULT_LEARNED = { recipe: null, history: [], endpoints: {}, candidates: [], limitsByIsin: {} };
 
 function readJson(file, fallback) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
@@ -153,6 +153,13 @@ function saveCandidates(candidates) {
   return next;
 }
 
+function saveCapturedLimits(isin, limits) {
+  const current = loadLearned();
+  const next = { ...current, limitsByIsin: { ...current.limitsByIsin, [isin]: limits } };
+  writeJson(LEARNED_FILE, next);
+  return next;
+}
+
 function saveEndpoint(kind, endpoint) {
   const current = loadLearned();
   const next = { ...current, endpoints: { ...current.endpoints, [kind]: endpoint } };
@@ -202,6 +209,7 @@ module.exports = {
   saveRecipe,
   saveEndpoint,
   saveCandidates,
+  saveCapturedLimits,
   saveSymbols,
   loadSymbols,
   resetLearned,

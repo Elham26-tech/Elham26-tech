@@ -83,6 +83,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (!engine.status().candidateCount) return fail('هیچ نامزدی برای اطلاعات نماد ثبت نشد');
   ok(`نامزد اطلاعات نماد ثبت شد (${engine.status().candidateCount} مورد)`);
 
+  // سقف/کف باید از همان پاسخی که مرورگر گرفت خوانده شده باشد
+  await wait(400);
+  if (!engine.capturedLimits.has('IRO3LABN0001')) return fail('سقف/کف از پاسخ زنده خوانده نشد');
+  ok('سقف/کف از پاسخ زندهٔ مرورگر خوانده شد');
+
   // حالا سقف/کف نمادِ دیگری را از خودِ کارگزار می‌پرسد
   const picked = await engine.selectSymbol({ isin: 'IRO1FOLD0001', symbol: 'فولاد', name: 'فولاد مباركه', yesterday: 24800 });
   if (!picked.ok) return fail('انتخاب نماد ناموفق');
