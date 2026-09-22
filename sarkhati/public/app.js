@@ -55,9 +55,13 @@ function showError(err) {
 
 function collectSettings() {
   const patch = {};
+  const mode = $('priceMode') ? $('priceMode').value : 'manual';
   for (const key of FIELDS) {
     const el = $(key);
     if (!el) continue;
+    // عددی که در حالت سقف/کف نشان داده می‌شود مالِ خودِ کارگزاری است؛
+    // نباید جای قیمتِ دستیِ کاربر ذخیره شود.
+    if (key === 'price' && mode !== 'manual') continue;
     const raw = el.value.trim();
     if (BOOLEAN.has(key)) patch[key] = raw === 'true';
     else patch[key] = NUMERIC.has(key) ? (raw === '' ? null : Number(raw)) : raw;
@@ -66,14 +70,32 @@ function collectSettings() {
 }
 
 let saveTimer = null;
+// تا وقتی تغییرِ ذخیره‌نشده داریم، پاسخ‌های دوره‌ای سرور نباید فرم را
+// عقب برگردانند — همین باعث می‌شد انتخاب «سقف مجاز» به «دستی» برگردد.
+let pendingSave = false;
+
+// لحظهٔ آخرین تغییرِ کاربر. پاسخی که *قبل* از آن درخواست شده کهنه است و
+// نباید فرم را عقب ببرد؛ وگرنه انتخاب تازه با پاسخِ در راه پاک می‌شود.
+let lastChangeAt = 0;
+
+function saveNow() {
+  clearTimeout(saveTimer);
+  pendingSave = true;
+  lastChangeAt = Date.now();
+  return api('/api/settings', { method: 'PUT', body: collectSettings() })
+    .then((status) => { pendingSave = false; render(status); })
+    .catch((err) => { pendingSave = false; showError(err); });
+}
+
 function scheduleSave() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    api('/api/settings', { method: 'PUT', body: collectSettings() }).then(render).catch(showError);
-  }, 350);
+  pendingSave = true;
+  lastChangeAt = Date.now();
+  saveTimer = setTimeout(saveNow, 350);
 }
 
 function fillSettings(settings) {
+  if (pendingSave) return;
   for (const key of FIELDS) {
     const el = $(key);
     if (!el || el === document.activeElement) continue;
@@ -236,7 +258,20 @@ function renderInstrument(status) {
       : `ISIN: ${inst.isin}`;
   }
 
-  $('price-manual-row').hidden = status.settings.priceMode !== 'manual';
+  // در حالت سقف/کف، عددِ واقعی داخل همان فیلد قیمت نشان داده می‌شود تا
+  // کاربر ببیند چه چیزی ارسال می‌شود؛ فقط خواندنی است، نه پنهان.
+  const manual = status.settings.priceMode === 'manual';
+  const priceField = $('price');
+  const priceLabel = $('price-label');
+
+  if (!manual && priceField !== document.activeElement) {
+    priceField.value = status.effectivePrice == null ? '' : String(status.effectivePrice);
+  }
+  priceField.readOnly = !manual;
+  priceField.classList.toggle('auto', !manual);
+  priceLabel.textContent = manual ? 'قیمت دستی'
+    : status.settings.priceMode === 'max' ? 'قیمت (سقف مجاز)' : 'قیمت (کف مجاز)';
+
   $('effective-price').textContent = num(status.effectivePrice);
   $('btn-max-qty').disabled = !(inst && inst.maxQuantity);
 }
@@ -354,7 +389,10 @@ function bindAction(id, path, body) {
 
 for (const key of FIELDS) {
   const el = $(key);
-  if (el) el.addEventListener('input', scheduleSave);
+  if (!el) continue;
+  // انتخاب از فهرست باید بی‌درنگ اثر کند، نه با تأخیر
+  if (el.tagName === 'SELECT') el.addEventListener('change', saveNow);
+  else el.addEventListener('input', scheduleSave);
 }
 
 bindAction('btn-open', '/api/open-easytrader');
@@ -369,8 +407,12 @@ bindAction('btn-reset-session', '/api/reset', { session: true, learned: false })
 bindAction('btn-reset-learned', '/api/reset', { session: false, learned: true });
 
 async function refresh() {
+  const startedAt = Date.now();
   try {
-    render(await api('/api/status'));
+    const status = await api('/api/status');
+    // اگر در این فاصله کاربر چیزی عوض کرده، این پاسخ کهنه است
+    if (lastChangeAt > startedAt) return;
+    render(status);
   } catch {
     $('pill-browser').textContent = 'ارتباط با سرور قطع است';
   }

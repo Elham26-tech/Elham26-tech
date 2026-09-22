@@ -138,6 +138,14 @@ input, select {
 }
 input:focus, select:focus { outline: 2px solid var(--primary); outline-offset: 1px; }
 
+/* قیمتی که خودِ برنامه از سقف/کف کارگزاری گذاشته: خواندنی، نه ورودی */
+input.auto {
+  border-color: var(--ok);
+  color: var(--ok);
+  font-weight: 700;
+  cursor: default;
+}
+
 .with-btn { display: flex; gap: 5px; align-items: stretch; }
 .with-btn input { margin-top: 3px; }
 
