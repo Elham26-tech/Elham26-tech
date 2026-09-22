@@ -13,6 +13,7 @@ const recipe = require('../lib/recipe');
 const tsetmc = require('../lib/tsetmc');
 const limits = require('../lib/limits');
 const endpoint = require('../lib/endpoint');
+const clock = require('../lib/clock');
 const { Engine } = require('../lib/engine');
 
 const tests = [];
@@ -677,6 +678,107 @@ test('وقتی نامزدی جواب ندهد، دلیلش در گزارش می�
   const log = engine.session.log.map((l) => l.message).join('\n');
   assert.ok(log.includes('HTTP 401'), 'کد وضعیت باید گزارش شود');
   assert.ok(log.includes('سقف/کف در پاسخ نبود'), 'دلیل نبودِ سقف/کف باید گزارش شود');
+});
+
+// --- ترکیب سقف/کف از چند مسیر (همان کاری که نسخهٔ اصلی می‌کرد) ---
+test('اعداد چند پاسخ با هم ترکیب می‌شوند', () => {
+  // هیچ پاسخی همهٔ اعداد را ندارد: یکی سقف/کف دارد، دیگری حجم مجاز
+  let merged = limits.emptyLimits();
+  merged = limits.merge(merged, limits.fromResponse({ maxAllowedPrice: 10941, minAllowedPrice: 9899 }));
+  assert.strictEqual(limits.isUseful(merged), true);
+  assert.strictEqual(merged.maxQuantity, null);
+
+  merged = limits.merge(merged, limits.fromResponse({ maxOrderQuantity: 200000, tickSize: 10 }));
+  assert.strictEqual(merged.upperPrice, 10941, 'عدد قبلی نباید پاک شود');
+  assert.strictEqual(merged.maxQuantity, 200000);
+  assert.strictEqual(merged.tick, 10);
+});
+
+test('ترکیب، عدد موجود را با عدد پاسخ بعدی خراب نمی‌کند', () => {
+  let merged = limits.emptyLimits();
+  merged = limits.merge(merged, limits.fromResponse({ maxAllowedPrice: 10941 }));
+  merged = limits.merge(merged, limits.fromResponse({ maxAllowedPrice: 999 }));
+  assert.strictEqual(merged.upperPrice, 10941);
+});
+
+test('سقف/کف از دو مسیر جدا کنار هم جمع می‌شوند', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.learned = store.saveCandidates([
+    { method: 'GET', url: 'https://api.b.ir/price?isin=IRO1FOLD0001', param: 'isin', sample: 'IRO1FOLD0001', headers: {}, postData: '' },
+    { method: 'GET', url: 'https://api.b.ir/limit?isin=IRO1FOLD0001', param: 'isin', sample: 'IRO1FOLD0001', headers: {}, postData: '' },
+  ]);
+  engine.browser.replayRequest = async (req) => (req.url.includes('/price')
+    ? { ok: true, status: 200, text: JSON.stringify({ maxAllowedPrice: 10941, minAllowedPrice: 9899 }) }
+    : { ok: true, status: 200, text: JSON.stringify({ maxOrderQuantity: 200000, minOrderQuantity: 10 }) });
+
+  const found = await engine.brokerLimits('IRO3LABN0001');
+  assert.strictEqual(found.upperPrice, 10941);
+  assert.strictEqual(found.lowerPrice, 9899);
+  assert.strictEqual(found.maxQuantity, 200000, 'حجم مجاز از مسیر دوم باید اضافه شود');
+  assert.strictEqual(found.minQuantity, 10);
+});
+
+// --- کد نماد داخل خودِ نشانی، وقتی پارامتر جواب نمی‌دهد ---
+test('اگر پارامتر پیدا نشد، کد نماد داخل نشانی جایگزین می‌شود', () => {
+  const broken = {
+    method: 'GET',
+    url: 'https://api.b.ir/ms/api/MarketSheet/sum/IRTKMOFD0001/',
+    param: 'isin',            // پارامتری که اصلاً در نشانی نیست
+    sample: 'IRTKMOFD0001',
+    headers: {},
+    postData: '',
+  };
+  const next = endpoint.withValue(broken, 'IRO1FOLD0001');
+  assert.ok(next, 'باید جایگزین شود، نه اینکه رد شود');
+  assert.ok(next.url.endsWith('/MarketSheet/sum/IRO1FOLD0001/'));
+});
+
+// --- ساعت کارگزار با دقت میلی‌ثانیه ---
+test('زمان سرور از هر شکلی از پاسخ خوانده می‌شود', () => {
+  const now = Date.now();
+  assert.strictEqual(clock.serverTimestampOf({ serverTime: now }), now);
+  assert.strictEqual(clock.serverTimestampOf({ data: { currentTimeMillis: now } }), now);
+  // ثانیه به‌جای میلی‌ثانیه
+  const seconds = Math.floor(now / 1000);
+  assert.strictEqual(clock.serverTimestampOf({ time: seconds }), seconds * 1000);
+  assert.strictEqual(clock.serverTimestampOf({ ok: true, count: 5 }), null);
+});
+
+test('عددهای بی‌ربط به‌جای زمان گرفته نمی‌شوند', () => {
+  assert.strictEqual(clock.plausibleEpochMillis(5), false);
+  assert.strictEqual(clock.plausibleEpochMillis(Date.now()), true);
+  assert.strictEqual(clock.plausibleEpochMillis(Date.UTC(1990, 0, 1)), false);
+});
+
+test('کم‌تأخیرترین نمونه ملاک است', () => {
+  const best = clock.bestReading([
+    { offset: 900, rtt: 400 },
+    { offset: 120, rtt: 40 },
+    { offset: 500, rtt: 250 },
+  ]);
+  assert.strictEqual(best.offsetMs, 120, 'نمونه‌ای با کمترین رفت‌وبرگشت کمترین خطا را دارد');
+  assert.strictEqual(best.rttMs, 40);
+  assert.strictEqual(best.samples, 3);
+  assert.strictEqual(clock.bestReading([]), null);
+});
+
+test('اختلاف از روی وسطِ رفت‌وبرگشت حساب می‌شود', () => {
+  // سرور در لحظهٔ ۱۰۰۰ عدد داده؛ ما در ۹۰۰ فرستادیم و در ۱۱۰۰ گرفتیم
+  const r = clock.readingFrom(1000, 900, 1100);
+  assert.strictEqual(r.rtt, 200);
+  assert.strictEqual(r.offset, 0, 'وسطِ رفت‌وبرگشت ۱۰۰۰ است، پس اختلاف صفر');
+});
+
+// --- گام قیمت ---
+test('قیمتی که مضرب گام قیمت نیست رد می‌شود', () => {
+  const learned = recipe.fromRequest(SAMPLE_REQUEST, { status: 200 });
+  const bad = recipe.validate(learned, { quantity: 10, price: 10005, tick: 10 });
+  assert.strictEqual(bad.ok, false);
+  assert.ok(bad.problems.some((p) => p.includes('گام قیمت')));
+
+  assert.strictEqual(recipe.validate(learned, { quantity: 10, price: 10010, tick: 10 }).ok, true);
+  assert.strictEqual(recipe.validate(learned, { quantity: 10, price: 10005, tick: 1 }).ok, true);
 });
 
 let failed = 0;

@@ -239,6 +239,12 @@ function validate(recipe, overrides = {}) {
   if (overrides.price != null && overrides.price !== '' && !(Number(overrides.price) > 0)) {
     problems.push('قیمت باید بزرگ‌تر از صفر باشد.');
   }
+  // گام قیمت: عددی که مضرب گام نباشد را کارگزاری رد می‌کند.
+  const tick = Number(overrides.tick);
+  const price = Number(overrides.price);
+  if (tick > 1 && price > 0 && price % tick !== 0) {
+    problems.push(`قیمت ${price} مضربی از گام قیمت (${tick}) نیست.`);
+  }
   return { ok: problems.length === 0, problems };
 }
 

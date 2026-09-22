@@ -7,6 +7,7 @@ const recipeLib = require('./recipe');
 const tsetmc = require('./tsetmc');
 const endpointLib = require('./endpoint');
 const limitsLib = require('./limits');
+const clockLib = require('./clock');
 const { Browser } = require('./browser');
 
 const MAX_LOG = 400;
@@ -89,10 +90,61 @@ class Engine {
     return this.targetTimestamp(now) - pre * 1000;
   }
 
+  /** یک بار ساعت سرور را از مسیر یادگرفته‌شده می‌خواند */
+  async readBrokerClock(endpoint) {
+    const sentAt = Date.now();
+    // بعضی مسیرها مهر زمانی ضدکش دارند؛ تازه‌اش می‌کنیم
+    const url = endpoint.url.replace(/\b1[0-9]{12}\b/, String(sentAt));
+    const result = await this.browser.replayRequest({
+      method: 'GET', url, headers: endpoint.headers, body: null,
+    });
+    const receivedAt = Date.now();
+    if (!result.ok) throw new Error(`پاسخ HTTP ${result.status}`);
+
+    const serverMillis = clockLib.serverTimestampOf(JSON.parse(result.text));
+    if (!serverMillis) throw new Error('عدد زمان در پاسخ پیدا نشد');
+    return clockLib.readingFrom(serverMillis, sentAt, receivedAt);
+  }
+
+  /**
+   * اختلاف ساعت با کارگزاری.
+   * اول از مسیر ساعت سرور (دقت میلی‌ثانیه، چند نمونه و کم‌تأخیرترین)، و
+   * اگر چنین مسیری دیده نشده بود از هدر Date که فقط دقت ثانیه دارد.
+   */
   async syncClock() {
+    const sessionId = this.browser.sessionFor(this.settings.easyTraderUrl);
+    if (!sessionId) {
+      this.log('همگام‌سازی ساعت: اول ایزی‌تریدر را باز کنید.', 'error');
+      this.persist();
+      return { ok: false, error: 'مرورگر باز نیست' };
+    }
+
+    const endpoint = this.learned.endpoints && this.learned.endpoints.serverTime;
+    if (endpoint) {
+      const readings = [];
+      let lastError = null;
+      for (let i = 0; i < 5; i += 1) {
+        try {
+          readings.push(await this.readBrokerClock(endpoint));
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      const best = clockLib.bestReading(readings);
+      if (best) {
+        this.settings = store.saveSettings({ clockOffsetMs: best.offsetMs });
+        this.log(
+          `ساعت با سرور کارگزاری همگام شد: اختلاف ${best.offsetMs} ms`
+            + ` (${best.samples} نمونه، کم‌ترین رفت‌وبرگشت ${best.rttMs} ms).`,
+          'ok',
+        );
+        this.persist();
+        return { ok: true, offsetMs: best.offsetMs, rttMs: best.rttMs, samples: best.samples };
+      }
+      this.log(`مسیر ساعت کارگزاری جواب نداد (${lastError && lastError.message})؛ از هدر Date استفاده می‌شود.`, 'warn');
+    }
+
     try {
-      const sessionId = this.browser.sessionFor(this.settings.easyTraderUrl);
-      if (!sessionId) throw new Error('اول ایزی‌تریدر را باز کنید.');
       const sentAt = Date.now();
       const result = await this.browser.send('Runtime.evaluate', {
         expression: `(async () => {
@@ -111,12 +163,17 @@ class Engine {
       const receivedAt = Date.now();
       const header = result.result && result.result.value;
       if (!header) throw new Error('سرور کارگزاری هدر Date نفرستاد.');
-      const roundTrip = receivedAt - sentAt;
-      const offsetMs = Math.round(new Date(header).getTime() + roundTrip / 2 - receivedAt);
+
+      const reading = clockLib.readingFrom(new Date(header).getTime(), sentAt, receivedAt);
+      const offsetMs = Math.round(reading.offset);
       this.settings = store.saveSettings({ clockOffsetMs: offsetMs });
-      this.log(`ساعت با سرور کارگزاری همگام شد: اختلاف ${offsetMs} ms.`, 'ok');
+      this.log(
+        `ساعت از هدر Date همگام شد: اختلاف ${offsetMs} ms — دقتش فقط در حد ثانیه است.`
+          + ' برای دقت بیشتر، در ایزی‌تریدر صفحه‌ای را باز کنید که ساعت سرور را می‌گیرد.',
+        'warn',
+      );
       this.persist();
-      return { ok: true, offsetMs };
+      return { ok: true, offsetMs, coarse: true };
     } catch (err) {
       this.log(`همگام‌سازی ساعت ناموفق: ${err.message}`, 'error');
       this.persist();
@@ -196,6 +253,22 @@ class Engine {
   learnEndpoints(request) {
     if (!request.url) return;
     if (recipeLib.THIRD_PARTY.test(request.url)) return;
+
+    // مسیر ساعت سرور: دقت میلی‌ثانیه دارد، برخلاف هدر Date
+    let pathname = '';
+    try { pathname = new URL(request.url).pathname; } catch { pathname = ''; }
+    if (request.method === 'GET' && endpointLib.SERVER_TIME_PATH.test(pathname)
+        && !(this.learned.endpoints && this.learned.endpoints.serverTime)) {
+      this.learned = store.saveEndpoint('serverTime', {
+        method: 'GET',
+        url: request.url,
+        headers: endpointLib.replayableHeaders(request.headers),
+        postData: '',
+      });
+      this.log(`مسیر ساعت کارگزاری یاد گرفته شد: ${pathname}`, 'ok');
+      this.persist();
+    }
+
     if (recipeLib.looksLikeOrder(request, { origin: this.settings.easyTraderUrl })) return;
 
     const built = endpointLib.build(request, { isinMode: true });
@@ -251,17 +324,23 @@ class Engine {
   }
 
   /**
-   * سقف/کف مجاز و تعداد مجاز را از خودِ کارگزار می‌پرسد. نامزدِ اثبات‌شده
-   * اول امتحان می‌شود؛ اگر نبود یا جواب نداد، بقیه به‌ترتیب امتیاز.
+   * سقف/کف مجاز و تعداد مجاز را از خودِ کارگزار می‌پرسد.
+   *
+   * همهٔ مسیرهای یادگرفته‌شده خوانده و نتیجه‌ها با هم ترکیب می‌شوند، چون
+   * هیچ پاسخی همهٔ اعداد را ندارد: یکی سقف و کف قیمت دارد و دیگری حداکثر
+   * حجم مجاز. اولین پاسخِ «به‌دردبخور» کافی نیست.
    */
   async brokerLimits(isin) {
     const proven = this.learned.endpoints && this.learned.endpoints.instrument;
     const rest = (this.learned.candidates || [])
       .filter((c) => !proven || !endpointLib.sameEndpoint(c, proven));
-    const queue = proven ? [proven, ...rest] : rest;
+    const queue = (proven ? [proven, ...rest] : rest).slice(0, 8);
     if (!queue.length) return null;
 
+    let merged = limitsLib.emptyLimits();
     const failures = [];
+    const contributors = [];
+
     for (const candidate of queue) {
       let outcome = null;
       try {
@@ -273,24 +352,33 @@ class Engine {
         failures.push(outcome);
         continue;
       }
-      const found = outcome.limits;
+      const before = JSON.stringify([merged.upperPrice, merged.lowerPrice,
+        merged.maxQuantity, merged.minQuantity, merged.tick]);
+      merged = limitsLib.merge(merged, outcome.limits);
+      const after = JSON.stringify([merged.upperPrice, merged.lowerPrice,
+        merged.maxQuantity, merged.minQuantity, merged.tick]);
+      if (before !== after) contributors.push({ endpoint: candidate, where: outcome.where });
+    }
 
-      if (!proven || !endpointLib.sameEndpoint(candidate, proven)) {
-        this.learned = store.saveEndpoint('instrument', candidate);
-        let where = candidate.url;
-        try { where = new URL(candidate.url).pathname; } catch { /* نشانی غیرعادی */ }
-        this.log(`مسیر اطلاعات نماد پیدا شد: ${where}`, 'ok');
+    if (!limitsLib.isUseful(merged)) {
+      this.log(`هیچ‌کدام از ${queue.length} مسیر، سقف/کف نداد:`, 'warn');
+      for (const failure of failures.slice(0, 6)) {
+        this.log(`  • ${failure.where} — ${failure.why}`, 'info');
       }
-      this.lastBrokerLimits = { url: candidate.url, limits: found };
-      return found;
+      this.lastCandidateFailures = failures;
+      return null;
     }
 
-    this.log(`هیچ‌کدام از ${queue.length} نامزد، سقف/کف نداد:`, 'warn');
-    for (const failure of failures.slice(0, 6)) {
-      this.log(`  • ${failure.where} — ${failure.why}`, 'info');
+    merged.source = contributors.map((c) => c.where).join(' + ') || 'کارگزار';
+    // مسیری که واقعاً سهم داشت را به‌عنوان اثبات‌شده نگه می‌داریم تا دفعهٔ
+    // بعد اول از همان پرسیده شود.
+    if (contributors.length) {
+      this.learned = store.saveEndpoint('instrument', contributors[0].endpoint);
+      this.log(`سقف/کف از ${contributors.length} مسیر کارگزاری خوانده شد: ${merged.source}`, 'ok');
     }
-    this.lastCandidateFailures = failures;
-    return null;
+    if (failures.length) this.lastCandidateFailures = failures;
+    this.lastBrokerLimits = { source: merged.source, limits: merged };
+    return merged;
   }
 
   /** چند تا از درخواست‌هایی که سفارش نبودند را گزارش می‌کند، بدون شلوغ‌کاری */
@@ -434,6 +522,7 @@ class Engine {
       symbol: this.settings.symbol || undefined,
       quantity: this.settings.quantity ?? undefined,
       price: this.effectivePrice(),
+      tick: this.settings.instrument ? this.settings.instrument.tick : null,
       side: this.settings.side || 'buy',
       capturedIsSell: Boolean(this.settings.capturedIsSell),
     };
@@ -685,6 +774,7 @@ class Engine {
       browserConnected: this.browser.connected,
       hasInstrumentEndpoint: Boolean(this.learned.endpoints && this.learned.endpoints.instrument),
       candidateCount: (this.learned.candidates || []).length,
+      hasBrokerClock: Boolean(this.learned.endpoints && this.learned.endpoints.serverTime),
       symbolCount: (this.symbols || []).length,
       settings: this.settings,
       effectivePrice: this.effectivePrice() ?? null,

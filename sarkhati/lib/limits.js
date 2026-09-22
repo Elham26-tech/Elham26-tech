@@ -75,6 +75,35 @@ function fromResponse(payload) {
   return limits;
 }
 
+/**
+ * نتیجهٔ یک پاسخ را روی آنچه تا حالا داریم می‌نشاند، بدون پاک کردن.
+ *
+ * چرا ترکیب و نه «اولین پاسخِ به‌دردبخور»: هیچ پاسخی همهٔ اعداد را ندارد —
+ * یکی سقف و کف قیمت می‌دهد و دیگری حداکثر حجم مجاز. این دقیقاً همان کاری
+ * است که نسخهٔ اصلی می‌کرد و نبودش باعث می‌شد سقف/کف پیدا نشود.
+ */
+function merge(into, found) {
+  const target = into || { source: null, fields: {} };
+  for (const name of Object.keys(PATTERNS)) {
+    if (!target[name] && found[name]) target[name] = found[name];
+  }
+  for (const [key, value] of Object.entries(found.fields || {})) {
+    if (target.fields[key] === undefined) target.fields[key] = value;
+  }
+  if (target.upperPrice && target.lowerPrice && target.upperPrice < target.lowerPrice) {
+    const swap = target.upperPrice;
+    target.upperPrice = target.lowerPrice;
+    target.lowerPrice = swap;
+  }
+  return target;
+}
+
+function emptyLimits() {
+  const out = { source: null, fields: {} };
+  for (const name of Object.keys(PATTERNS)) out[name] = null;
+  return out;
+}
+
 /** آیا از این پاسخ چیز به‌دردبخوری درآمد؟ */
 function isUseful(limits) {
   return Boolean(limits && (limits.upperPrice || limits.lowerPrice || limits.maxQuantity));
@@ -101,4 +130,7 @@ function estimateFromYesterday(yesterdayPrice, rangePercent = 5) {
   };
 }
 
-module.exports = { PATTERNS, numericLeaves, pick, fromResponse, isUseful, estimateFromYesterday };
+module.exports = {
+  PATTERNS, numericLeaves, pick, fromResponse, merge, emptyLimits,
+  isUseful, estimateFromYesterday,
+};

@@ -83,30 +83,37 @@ function build({ method, url, postData, headers }, { isinMode = false } = {}) {
   return null;
 }
 
-/** همان درخواست را با مقدار تازه می‌سازد */
+/**
+ * همان درخواست را با مقدار تازه می‌سازد.
+ * اگر هیچ‌کدام از راه‌ها نگرفت ولی کد نمادی جایی در نشانی هست، همان را
+ * جایگزین می‌کنیم — بعضی مسیرها کد را داخل خودِ مسیر دارند.
+ */
 function withValue(endpoint, value) {
   if (!endpoint) return null;
   const fresh = String(value);
+  const fallback = () => (ISIN_ANYWHERE.test(endpoint.url)
+    ? { ...endpoint, url: endpoint.url.replace(ISIN_ANYWHERE, fresh), body: endpoint.postData || null }
+    : null);
 
   if (endpoint.contains && endpoint.inBody) {
     const body = parseJson(endpoint.postData);
-    if (!body || typeof body[endpoint.param] !== 'string') return null;
+    if (!body || typeof body[endpoint.param] !== 'string') return fallback();
     const text = body[endpoint.param];
-    if (!text.includes(endpoint.sample)) return null;
+    if (!text.includes(endpoint.sample)) return fallback();
     body[endpoint.param] = text.split(endpoint.sample).join(fresh);
     return { ...endpoint, url: endpoint.url, body: JSON.stringify(body) };
   }
 
   if (endpoint.inBody) {
     const body = parseJson(endpoint.postData);
-    if (!body || !(endpoint.param in body)) return null;
+    if (!body || !(endpoint.param in body)) return fallback();
     body[endpoint.param] = fresh;
     return { ...endpoint, url: endpoint.url, body: JSON.stringify(body) };
   }
 
   // بدون پارامتر: کد نماد داخل خودِ مسیر است
   if (!endpoint.param) {
-    if (!endpoint.sample) return null;
+    if (!endpoint.sample) return fallback();
     return {
       ...endpoint,
       url: endpoint.url.split(endpoint.sample).join(fresh),
@@ -115,8 +122,8 @@ function withValue(endpoint, value) {
   }
 
   let parsed;
-  try { parsed = new URL(endpoint.url); } catch { return null; }
-  if (!parsed.searchParams.has(endpoint.param)) return null;
+  try { parsed = new URL(endpoint.url); } catch { return fallback(); }
+  if (!parsed.searchParams.has(endpoint.param)) return fallback();
   parsed.searchParams.set(endpoint.param, fresh);
   return { ...endpoint, url: parsed.toString(), body: endpoint.postData || null };
 }
@@ -137,6 +144,10 @@ function replayableHeaders(headers = {}) {
   }
   return out;
 }
+
+// مسیری که ساعت سرور کارگزار را می‌دهد — دقتش میلی‌ثانیه است، برخلاف
+// هدر Date که فقط ثانیه دارد.
+const SERVER_TIME_PATH = /(server-?time|servertime|time\/now|systemtime|currenttime)/i;
 
 // مسیرهایی که معمولاً مشخصات نماد می‌دهند، در برابر مسیرهایی که فقط داده
 // نمودار می‌دهند. اولی اول امتحان می‌شود.
@@ -167,5 +178,5 @@ function sameEndpoint(a, b) {
 
 module.exports = {
   ISIN, looksLikeSearchTerm, build, withValue, replayableHeaders,
-  scoreEndpoint, sameEndpoint, GOOD_PATH, POOR_PATH,
+  scoreEndpoint, sameEndpoint, GOOD_PATH, POOR_PATH, SERVER_TIME_PATH,
 };
