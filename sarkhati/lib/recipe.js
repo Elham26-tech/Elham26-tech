@@ -126,6 +126,31 @@ function looksLikeOrder(request, { origin } = {}) {
   return false;
 }
 
+/**
+ * کد خرید و فروش را از روی سمتِ سفارشِ یادگرفته‌شده می‌سازد.
+ *
+ * فقط یکی از دو کد را دیده‌ایم — همانی که کاربر دستی زده — و دیگری از روی
+ * الگوی رایج ساخته می‌شود. «۱» مبهم است: هم می‌تواند خرید در الگوی ۱/۲
+ * باشد و هم فروش در الگوی ۰/۱؛ پیش‌فرض را خرید می‌گیریم چون سرخطی خرید است.
+ */
+const COUNTERPART = {
+  0: 1, 1: 0, 2: 1,
+  buy: 'sell', sell: 'buy', Buy: 'Sell', Sell: 'Buy', BUY: 'SELL', SELL: 'BUY',
+  b: 's', s: 'b', خرید: 'فروش', فروش: 'خرید',
+};
+
+function sideCodes(sample, capturedIsSell = false) {
+  const key = typeof sample === 'number' ? sample : String(sample);
+  let counterpart = COUNTERPART[key];
+  if (counterpart === undefined) counterpart = sample;
+  if (String(sample) === '1' && !capturedIsSell) {
+    counterpart = typeof sample === 'number' ? 2 : '2';
+  }
+  return capturedIsSell
+    ? { buy: counterpart, sell: sample }
+    : { buy: sample, sell: counterpart };
+}
+
 /** از یک درخواست ضبط‌شده، دستور قابل تکرار می‌سازد */
 function fromRequest(request, response = {}) {
   let parsed = null;
@@ -168,6 +193,18 @@ function build(recipe, overrides = {}) {
   const body = JSON.parse(JSON.stringify(recipe.parsedBody));
   const applied = {};
 
+  // سمت سفارش: کدی که کارگزاری می‌فهمد، از روی همان سفارش واقعی ساخته
+  // می‌شود — نه حدس زده.
+  const sideField = recipe.fields.side;
+  if (sideField && overrides.side) {
+    const codes = sideCodes(sideField.sample, Boolean(overrides.capturedIsSell));
+    const wanted = overrides.side === 'sell' ? codes.sell : codes.buy;
+    if (wanted !== undefined && wanted !== null) {
+      setPath(body, sideField.path, wanted);
+      applied.side = wanted;
+    }
+  }
+
   for (const name of ['quantity', 'price', 'symbol']) {
     const field = recipe.fields[name];
     const value = overrides[name];
@@ -206,6 +243,7 @@ function validate(recipe, overrides = {}) {
 }
 
 module.exports = {
+  sideCodes,
   ORDER_PATH,
   THIRD_PARTY,
   baseDomain,

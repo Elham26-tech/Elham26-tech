@@ -5,13 +5,18 @@
 // دوبارهٔ برنامه وضعیت اجرای قبلی را احیا نمی‌کند.
 
 const FIELDS = [
-  'easyTraderUrl', 'quantity', 'price', 'priceMode', 'targetTime', 'preArmSeconds',
-  'sendRate', 'parallel', 'stopAfterSeconds', 'maxAttempts',
+  'easyTraderUrl', 'side', 'quantity', 'price', 'priceMode',
+  'targetTime', 'targetMillis', 'preArmSeconds',
+  'retryGapMs', 'fireSeconds', 'parallel', 'leadMs', 'maxAttempts',
+  'capturedIsSell', 'rangePercent',
 ];
 
 const NUMERIC = new Set([
-  'quantity', 'price', 'preArmSeconds', 'sendRate', 'parallel', 'stopAfterSeconds', 'maxAttempts',
+  'quantity', 'price', 'targetMillis', 'preArmSeconds',
+  'retryGapMs', 'fireSeconds', 'parallel', 'leadMs', 'maxAttempts', 'rangePercent',
 ]);
+
+const BOOLEAN = new Set(['capturedIsSell']);
 
 const FA_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
 
@@ -54,7 +59,8 @@ function collectSettings() {
     const el = $(key);
     if (!el) continue;
     const raw = el.value.trim();
-    patch[key] = NUMERIC.has(key) ? (raw === '' ? null : Number(raw)) : raw;
+    if (BOOLEAN.has(key)) patch[key] = raw === 'true';
+    else patch[key] = NUMERIC.has(key) ? (raw === '' ? null : Number(raw)) : raw;
   }
   return patch;
 }
@@ -72,6 +78,7 @@ function fillSettings(settings) {
     const el = $(key);
     if (!el || el === document.activeElement) continue;
     el.value = settings[key] == null ? '' : String(settings[key]);
+    if (BOOLEAN.has(key)) el.value = settings[key] ? 'true' : 'false';
   }
 }
 

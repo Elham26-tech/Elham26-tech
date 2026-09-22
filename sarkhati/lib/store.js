@@ -56,12 +56,17 @@ const DEFAULT_SETTINGS = {
   priceMode: 'manual',    // manual | max | min  — سقف/کف مجاز یا قیمت دستی
   rangePercent: 5,        // دامنهٔ نوسان، فقط برای تخمین وقتی TSETMC آستانه ندهد
   instrument: null,       // آخرین سقف/کف گرفته‌شده از TSETMC
+  side: 'buy',            // خرید یا فروش — کدش از سفارش یادگرفته‌شده ساخته می‌شود
+  capturedIsSell: false,  // سفارشی که دستی زدید فروش بود یا خرید
+
   targetTime: '08:45:00',
-  preArmSeconds: 60,      // باگ ۳ — چند ثانیه زودتر شلیک شروع شود
-  sendRate: 8,
-  parallel: 2,
-  stopAfterSeconds: 15,
-  maxAttempts: 300,
+  targetMillis: 0,        // میلی‌ثانیهٔ ساعت هدف
+  preArmSeconds: 60,      // چند ثانیه زودتر شلیک شروع شود
+  retryGapMs: 10,         // فاصلهٔ بین دو ارسال، به میلی‌ثانیه
+  parallel: 2,            // درخواست هم‌زمان
+  fireSeconds: 15,        // چند ثانیه شلیک ادامه پیدا کند
+  maxAttempts: 3000,
+  leadMs: 0,              // پیش‌فرست: چند میلی‌ثانیه زودتر از لحظهٔ هدف
   clockOffsetMs: 0,
 };
 

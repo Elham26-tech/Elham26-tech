@@ -62,8 +62,14 @@
       <p class="muted" id="inst-note"></p>
     </div>
 
-    <div class="card-head"><h2>۳ — تعداد و قیمت</h2></div>
-    <div class="grid-3">
+    <div class="card-head"><h2>۳ — سمت، تعداد و قیمت</h2></div>
+    <div class="grid-4">
+      <label>سمت سفارش
+        <select id="side">
+          <option value="buy">خرید</option>
+          <option value="sell">فروش</option>
+        </select>
+      </label>
       <label>قیمت
         <select id="priceMode">
           <option value="max">سقف مجاز</option>
@@ -81,12 +87,26 @@
     </div>
     <p class="muted">قیمت ارسالی: <b id="effective-price">—</b></p>
 
-    <div class="card-head"><h2>۴ — زمان</h2></div>
+    <div class="card-head"><h2>۴ — زمان و شلیک</h2></div>
     <div class="grid-3">
       <label>ساعت هدف<input id="targetTime" type="text" placeholder="08:45:00" /></label>
+      <label>میلی‌ثانیه<input id="targetMillis" type="number" min="0" max="999" /></label>
       <label>شروع زودتر (ثانیه)<input id="preArmSeconds" type="number" min="0" max="600" /></label>
+    </div>
+    <div class="grid-3">
+      <label>فاصلهٔ ارسال‌ها (ms)<input id="retryGapMs" type="number" min="5" max="5000" /></label>
+      <label>مدت شلیک (ثانیه)<input id="fireSeconds" type="number" min="1" max="600" /></label>
+      <label>درخواست هم‌زمان<input id="parallel" type="number" min="1" max="16" /></label>
+    </div>
+    <div class="grid-3">
+      <label>پیش‌فرست (ms)<input id="leadMs" type="number" min="0" max="2000" /></label>
+      <label>سقف تعداد تلاش<input id="maxAttempts" type="number" min="1" /></label>
       <div class="btn-row"><button id="btn-sync">همگام‌سازی ساعت</button></div>
     </div>
+    <p class="muted">
+      فاصلهٔ ۱۰ms یعنی حدود ۱۰۰ ارسال در ثانیه. «پیش‌فرست» درخواست را چند
+      میلی‌ثانیه زودتر راه می‌اندازد تا سرِ لحظهٔ هدف به کارگزاری برسد.
+    </p>
   </section>
 
   <!-- ستون چپ: اجرا و گزارش -->
@@ -117,11 +137,18 @@
     <details>
       <summary>تنظیمات پیشرفته و آنچه یاد گرفته شده</summary>
       <div class="grid-2">
-        <label>نرخ ارسال (در ثانیه)<input id="sendRate" type="number" min="1" max="30" /></label>
-        <label>درخواست هم‌زمان<input id="parallel" type="number" min="1" max="8" /></label>
-        <label>سقف مدت (ثانیه)<input id="stopAfterSeconds" type="number" min="0" /></label>
-        <label>سقف تعداد تلاش<input id="maxAttempts" type="number" min="1" /></label>
+        <label>سفارشی که دستی زدید
+          <select id="capturedIsSell">
+            <option value="false">خرید بود</option>
+            <option value="true">فروش بود</option>
+          </select>
+        </label>
+        <label>دامنهٔ تخمین (٪)<input id="rangePercent" type="number" min="1" max="50" /></label>
       </div>
+      <p class="muted">
+        کد خرید و فروش از روی همان سفارش دستی ساخته می‌شود؛ اگر آن سفارش
+        فروش بوده، اینجا را عوض کنید تا کدها جابه‌جا نشوند.
+      </p>
       <pre class="recipe" id="recipe-box">هنوز سفارشی یاد گرفته نشده.</pre>
       <div class="grid-2">
         <a class="btn-link" id="btn-diagnostics" href="/api/diagnostics" download>دریافت گزارش تشخیصی</a>

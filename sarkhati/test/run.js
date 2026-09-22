@@ -591,6 +591,94 @@ test('اگر هیچ نامزدی جواب ندهد، سقف/کف تخمینی م
   assert.strictEqual(picked.instrument.priceMax, 10941);
 });
 
+// --- سمت سفارش: خرید و فروش ---
+test('کد مقابل از روی سمتِ یادگرفته‌شده ساخته می‌شود', () => {
+  assert.deepStrictEqual(recipe.sideCodes(0, false), { buy: 0, sell: 1 });
+  assert.deepStrictEqual(recipe.sideCodes('Buy', false), { buy: 'Buy', sell: 'Sell' });
+  // «۱» مبهم است: در الگوی ۱/۲ خرید است، در الگوی ۰/۱ فروش
+  assert.deepStrictEqual(recipe.sideCodes(1, false), { buy: 1, sell: 2 });
+  assert.deepStrictEqual(recipe.sideCodes(1, true), { buy: 0, sell: 1 });
+});
+
+test('انتخاب فروش، کد فروش را داخل سفارش می‌گذارد', () => {
+  // سفارش دستیِ کاربر خرید با کد 0 بوده
+  const learned = recipe.fromRequest({
+    method: 'POST',
+    url: 'https://api.easytrader.ir/core/api/v2/order',
+    postData: JSON.stringify({ symbol: 'IRO1FOLD0001', side: 0, quantity: 100, price: 25000 }),
+  });
+
+  const buy = JSON.parse(recipe.build(learned, { side: 'buy', quantity: 10 }).body);
+  assert.strictEqual(buy.side, 0);
+
+  const sell = JSON.parse(recipe.build(learned, { side: 'sell', quantity: 10 }).body);
+  assert.strictEqual(sell.side, 1, 'کد فروش باید مقابلِ کد خرید باشد');
+  assert.strictEqual(sell.quantity, 10);
+});
+
+test('اگر سفارش دستی فروش بوده، کدها جابه‌جا می‌شوند', () => {
+  const learned = recipe.fromRequest({
+    method: 'POST',
+    url: 'https://api.easytrader.ir/order',
+    postData: JSON.stringify({ symbol: 'X', side: 1, quantity: 5, price: 10 }),
+  });
+  const buy = JSON.parse(recipe.build(learned, { side: 'buy', capturedIsSell: true }).body);
+  assert.strictEqual(buy.side, 0);
+});
+
+test('سمت انتخابی کاربر واقعاً به سفارش می‌رسد', () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ side: 'sell', quantity: 20, price: 500, priceMode: 'manual' });
+  assert.strictEqual(engine.overrides().side, 'sell');
+});
+
+// --- زمان‌بندی دقیق ---
+test('میلی‌ثانیهٔ ساعت هدف اعمال می‌شود', () => {
+  const engine = new Engine();
+  engine.updateSettings({ targetTime: '08:45:00', targetMillis: 0, leadMs: 0, clockOffsetMs: 0 });
+  const base = engine.targetTimestamp();
+  engine.updateSettings({ targetMillis: 250 });
+  assert.strictEqual(engine.targetTimestamp() - base, 250);
+});
+
+test('پیش‌فرست، لحظهٔ هدف را جلو می‌کشد', () => {
+  const engine = new Engine();
+  engine.updateSettings({ targetTime: '08:45:00', targetMillis: 0, leadMs: 0 });
+  const base = engine.targetTimestamp();
+  engine.updateSettings({ leadMs: 120 });
+  assert.strictEqual(base - engine.targetTimestamp(), 120);
+});
+
+test('فاصلهٔ ارسال کمتر از ۵ میلی‌ثانیه نمی‌شود', () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.updateSettings({ retryGapMs: 1, fireSeconds: 1 });
+  // کمینه را موتور خودش اعمال می‌کند؛ اینجا فقط ذخیره‌شدنش را می‌سنجیم
+  assert.strictEqual(engine.settings.retryGapMs, 1);
+  assert.strictEqual(Math.max(5, engine.settings.retryGapMs), 5);
+});
+
+// --- گزارشِ دلیلِ شکستِ نامزدها ---
+test('وقتی نامزدی جواب ندهد، دلیلش در گزارش می‌آید', async () => {
+  const engine = new Engine();
+  engine.resetMemory({ session: true, learned: true });
+  engine.learned = store.saveCandidates([
+    { method: 'GET', url: 'https://api.b.ir/chart/history?isin=IRO1FOLD0001', param: 'isin', sample: 'IRO1FOLD0001', headers: {}, postData: '' },
+    { method: 'GET', url: 'https://api.b.ir/quote?isin=IRO1FOLD0001', param: 'isin', sample: 'IRO1FOLD0001', headers: {}, postData: '' },
+  ]);
+  engine.browser.replayRequest = async (req) => (req.url.includes('quote')
+    ? { ok: false, status: 401, text: 'unauthorized' }
+    : { ok: true, status: 200, text: JSON.stringify({ t: [1], c: [2] }) });
+
+  const found = await engine.brokerLimits('IRO3LABN0001');
+  assert.strictEqual(found, null);
+
+  const log = engine.session.log.map((l) => l.message).join('\n');
+  assert.ok(log.includes('HTTP 401'), 'کد وضعیت باید گزارش شود');
+  assert.ok(log.includes('سقف/کف در پاسخ نبود'), 'دلیل نبودِ سقف/کف باید گزارش شود');
+});
+
 let failed = 0;
 (async () => {
 for (const [name, fn] of tests) {

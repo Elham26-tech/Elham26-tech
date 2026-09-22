@@ -108,7 +108,7 @@ body {
 .badge.warn { color: var(--warn); border-color: var(--warn); }
 
 /* ---------- فرم‌های افقی ---------- */
-.grid-2, .grid-3 {
+.grid-2, .grid-3, .grid-4 {
   display: grid;
   gap: 8px;
   align-items: end;
@@ -116,8 +116,10 @@ body {
 }
 .grid-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) {
-  .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
 }
 
 label { display: block; margin: 0; font-size: 12px; color: var(--muted); }

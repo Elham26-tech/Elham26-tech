@@ -72,9 +72,12 @@ class Engine {
   targetTimestamp(now = this.now()) {
     const [h = 0, m = 0, s = 0] = String(this.settings.targetTime || '00:00:00')
       .split(':').map((n) => Number(n) || 0);
+    const millis = Math.min(999, Math.max(0, Number(this.settings.targetMillis) || 0));
     const target = new Date(now);
-    target.setHours(h, m, s, 0);
-    return target.getTime();
+    target.setHours(h, m, s, millis);
+    // پیش‌فرست: درخواست چند میلی‌ثانیه زودتر راه بیفتد تا وقتی به سرور
+    // کارگزاری می‌رسد، دقیقاً سرِ لحظهٔ هدف باشد.
+    return target.getTime() - (Number(this.settings.leadMs) || 0);
   }
 
   /**
@@ -212,10 +215,17 @@ class Engine {
     this.persist();
   }
 
-  /** یک نامزد را با کد نماد امتحان می‌کند و سقف/کف را برمی‌گرداند */
+  /**
+   * یک نامزد را با کد نماد امتحان می‌کند.
+   * دلیلِ شکست هم برمی‌گردد — بدون آن، «هیچ نامزدی جواب نداد» هیچ
+   * سرنخی برای عیب‌یابی نمی‌دهد.
+   */
   async tryCandidate(endpoint, isin) {
+    let where = endpoint.url;
+    try { where = new URL(endpoint.url).pathname; } catch { /* نشانی غیرعادی */ }
+
     const prepared = endpointLib.withValue(endpoint, isin);
-    if (!prepared) return null;
+    if (!prepared) return { ok: false, where, why: 'جای کد نماد در این درخواست پیدا نشد' };
 
     const result = await this.browser.replayRequest({
       method: prepared.method,
@@ -223,12 +233,21 @@ class Engine {
       headers: prepared.headers,
       body: prepared.method === 'GET' || prepared.method === 'HEAD' ? null : prepared.body,
     });
-    if (!result.ok) return null;
+    if (!result.ok) return { ok: false, where, why: `پاسخ HTTP ${result.status}` };
 
     let payload;
-    try { payload = JSON.parse(result.text); } catch { return null; }
+    try {
+      payload = JSON.parse(result.text);
+    } catch {
+      return { ok: false, where, why: 'پاسخ JSON نبود' };
+    }
+
     const found = limitsLib.fromResponse(payload);
-    return limitsLib.isUseful(found) ? found : null;
+    if (!limitsLib.isUseful(found)) {
+      const keys = Object.keys(found.fields || {}).slice(0, 8).join('، ');
+      return { ok: false, where, why: `سقف/کف در پاسخ نبود${keys ? ` (فیلدها: ${keys})` : ''}`, payload };
+    }
+    return { ok: true, where, limits: found };
   }
 
   /**
@@ -242,14 +261,19 @@ class Engine {
     const queue = proven ? [proven, ...rest] : rest;
     if (!queue.length) return null;
 
+    const failures = [];
     for (const candidate of queue) {
-      let found = null;
+      let outcome = null;
       try {
-        found = await this.tryCandidate(candidate, isin);
+        outcome = await this.tryCandidate(candidate, isin);
       } catch (err) {
-        this.log(`امتحان یک نامزد ناموفق: ${err.message}`, 'info');
+        outcome = { ok: false, where: candidate.url, why: err.message };
       }
-      if (!found) continue;
+      if (!outcome.ok) {
+        failures.push(outcome);
+        continue;
+      }
+      const found = outcome.limits;
 
       if (!proven || !endpointLib.sameEndpoint(candidate, proven)) {
         this.learned = store.saveEndpoint('instrument', candidate);
@@ -261,7 +285,11 @@ class Engine {
       return found;
     }
 
-    this.log(`هیچ‌کدام از ${queue.length} نامزد، سقف/کف نداد.`, 'warn');
+    this.log(`هیچ‌کدام از ${queue.length} نامزد، سقف/کف نداد:`, 'warn');
+    for (const failure of failures.slice(0, 6)) {
+      this.log(`  • ${failure.where} — ${failure.why}`, 'info');
+    }
+    this.lastCandidateFailures = failures;
     return null;
   }
 
@@ -406,6 +434,8 @@ class Engine {
       symbol: this.settings.symbol || undefined,
       quantity: this.settings.quantity ?? undefined,
       price: this.effectivePrice(),
+      side: this.settings.side || 'buy',
+      capturedIsSell: Boolean(this.settings.capturedIsSell),
     };
   }
 
@@ -513,9 +543,13 @@ class Engine {
   startFiring() {
     if (this.session.firing || this.session.finished) return;
     this.session.firing = true;
-    const rate = Math.max(1, Number(this.settings.sendRate) || 1);
+    const gap = Math.max(5, Number(this.settings.retryGapMs) || 10);
     const parallel = Math.max(1, Number(this.settings.parallel) || 1);
-    this.log(`شروع شلیک: نرخ ${rate} در ثانیه، ${parallel} درخواست هم‌زمان.`, 'ok');
+    this.log(
+      `شروع شلیک: هر ${gap} میلی‌ثانیه یک ارسال، ${parallel} درخواست هم‌زمان،`
+        + ` تا ${this.settings.fireSeconds} ثانیه.`,
+      'ok',
+    );
 
     this.fireTimer = setInterval(() => {
       if (this.session.finished) return this.stopFiring('پایان');
@@ -527,9 +561,9 @@ class Engine {
       return this.attempt()
         .catch((err) => this.log(`خطای غیرمنتظره: ${err.message}`, 'error'))
         .finally(() => { this.inFlight -= 1; this.persist(); });
-    }, Math.max(20, Math.round(1000 / rate)));
+    }, gap);
 
-    const cap = Number(this.settings.stopAfterSeconds) || 0;
+    const cap = Number(this.settings.fireSeconds) || 0;
     if (cap > 0) this.stopTimer = setTimeout(() => this.stopFiring('سقف مدت'), cap * 1000);
     this.persist();
   }
@@ -605,6 +639,8 @@ class Engine {
       },
       مسیر_اطلاعات_نماد: (this.learned.endpoints && this.learned.endpoints.instrument) || null,
       آخرین_سقف_کف_کارگزاری: this.lastBrokerLimits || null,
+      نامزدها: (this.learned.candidates || []).map((c) => ({ method: c.method, url: c.url, param: c.param })),
+      شکست_نامزدها: (this.lastCandidateFailures || []).map((f) => ({ where: f.where, why: f.why })),
       تعداد_نمادهای_فهرست: (this.symbols || []).length,
       گزارش: this.session.log.slice(-60),
     };
